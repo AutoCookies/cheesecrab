@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/bench-pomaidb-rag.dir/bench-pomaidb-rag.cpp.o" -o ../../bin/bench-pomaidb-rag  ../../vendor/pomaidb/libpomai_c.a ../../vendor/pomaidb/libpomai.a /usr/lib/gcc/x86_64-linux-gnu/13/libgomp.so /usr/lib/x86_64-linux-gnu/libpthread.a 

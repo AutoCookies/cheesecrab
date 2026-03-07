@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/test-contextsqueezer-vision.dir/test-contextsqueezer-vision.cpp.o" -o ../bin/test-contextsqueezer-vision  -Wl,-rpath,/home/autocookie/pomaieco/cheesecrab/build/bin: ../bin/libcontextsqueeze.so 

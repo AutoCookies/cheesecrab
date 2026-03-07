@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/cheese-qwen2vl-cli.dir/deprecation-warning.cpp.o" -o ../../bin/cheese-qwen2vl-cli 
