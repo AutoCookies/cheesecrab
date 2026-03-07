@@ -24,7 +24,9 @@
 
 #include <cstddef>
 #include <cinttypes>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <filesystem>
 
 // fix problem with std::min and std::max
@@ -39,6 +41,44 @@
 using json = nlohmann::ordered_json;
 
 constexpr int HTTP_POLLING_SECONDS = 1;
+
+namespace {
+// When chat_template_override is empty and model has no embedded template, try models/templates/<candidate>.jinja by path hint (e.g. path contains "qwen").
+std::string resolve_chat_template_fallback(const cheese_model * model, const std::string & chat_template_override, const std::string & model_path) {
+    if (!chat_template_override.empty()) return chat_template_override;
+    if (model && cheese_model_chat_template(model, nullptr)) return ""; // use model's
+    if (!model || model_path.empty()) return "";
+    std::string name_lower = model_path;
+    for (auto & c : name_lower) { if (c >= 'A' && c <= 'Z') c += 'a' - 'A'; }
+    std::vector<std::string> candidates;
+    if (name_lower.find("qwen") != std::string::npos) {
+        candidates.push_back("Qwen-Qwen3-0.6B.jinja");
+        candidates.push_back("Qwen-Qwen2.5-7B-Instruct.jinja");
+    } else if (name_lower.find("phi") != std::string::npos) {
+        candidates.push_back("microsoft-Phi-3.5-mini-instruct.jinja");
+    } else if (name_lower.find("gemma") != std::string::npos) {
+        candidates.push_back("google-gemma-2-2b-it.jinja");
+    } else if (name_lower.find("deepseek") != std::string::npos) {
+        candidates.push_back("deepseek-ai-DeepSeek-V3.1.jinja");
+    } else if (name_lower.find("llama") != std::string::npos || name_lower.find("cheese") != std::string::npos) {
+        candidates.push_back("meta-cheese-cheese-3.1-8B-Instruct.jinja");
+    }
+    for (const auto & rel : candidates) {
+        std::string path = "models/templates/" + rel;
+        if (!std::filesystem::exists(path)) continue;
+        std::ifstream f(path);
+        if (!f) continue;
+        std::ostringstream os;
+        os << f.rdbuf();
+        std::string content = os.str();
+        if (!content.empty()) {
+            SRV_INF("using chat template from %s (model name hint)\n", path.c_str());
+            return content;
+        }
+    }
+    return "";
+}
+} // namespace
 
 // state diagram: https://github.com/ggml-org/cheese.cpp/pull/9283
 enum slot_state {
@@ -1025,9 +1065,11 @@ private:
         // populate chat template params
         {
             common_chat_templates_ptr chat_templates;
+            std::string template_to_use = resolve_chat_template_fallback(model, params_base.chat_template, params_base.model.path);
+            if (template_to_use.empty()) template_to_use = params_base.chat_template;
 
             try {
-                chat_templates = common_chat_templates_init(model, params_base.chat_template);
+                chat_templates = common_chat_templates_init(model, template_to_use);
 
                 LOG_INF("%s: chat template, example_format: '%s'\n", __func__,
                     common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
@@ -3597,6 +3639,40 @@ void server_routes::init_routes() {
         return res;
     };
 
+    this->get_stats = [this](const server_http_req & req) {
+        auto res = create_response();
+        server_task task(SERVER_TASK_TYPE_METRICS);
+        task.id = res->rd.get_new_id();
+        res->rd.post_task(std::move(task), true);
+        auto result = res->rd.next(req.should_stop);
+        if (!result) {
+            GGML_ASSERT(req.should_stop());
+            return res;
+        }
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+        auto * res_task = dynamic_cast<server_task_result_metrics*>(result.get());
+        GGML_ASSERT(res_task != nullptr);
+        const uint64_t hits_plus_misses = res_task->cache_hits_total + res_task->cache_misses_total;
+        const double cache_hit_rate = hits_plus_misses > 0
+            ? (double)res_task->cache_hits_total / (double)hits_plus_misses : 0.0;
+        const double token_saved_percent = res_task->n_prompt_tokens_processed_total > 0
+            ? 100.0 * (double)res_task->cache_read_tokens_total / (double)res_task->n_prompt_tokens_processed_total : 0.0;
+        const double tokens_per_sec = res_task->t_prompt_processing > 0.0 && res_task->n_prompt_tokens_processed > 0
+            ? 1e3 * (double)res_task->n_prompt_tokens_processed / res_task->t_prompt_processing : 0.0;
+        json stats = {
+            {"cache_hit_rate",     cache_hit_rate},
+            {"token_saved_percent", token_saved_percent},
+            {"memory_peak_mb",     0.0},  // placeholder until we have peak tracking
+            {"tokens_per_sec",     tokens_per_sec},
+            {"power_estimate",     0.0}   // placeholder
+        };
+        res->ok(stats);
+        return res;
+    };
+
     this->get_slots = [this](const server_http_req & req) {
         auto res = create_response();
         if (!params.endpoint_slots) {
@@ -3996,6 +4072,31 @@ void server_routes::init_routes() {
                 },
             }}
         };
+
+        // Optional: when --models-dir is set, list other .gguf files so UI can show "available" models (restart with -m to switch)
+        if (!params.models_dir.empty() && std::filesystem::exists(params.models_dir) && std::filesystem::is_directory(params.models_dir)) {
+            std::vector<std::string> available;
+            try {
+                auto files = fs_list(params.models_dir, true);
+                for (const auto & f : files) {
+                    if (f.is_dir) {
+                        auto sub = fs_list(f.path, false);
+                        for (const auto & s : sub) {
+                            if (!s.is_dir && s.name.size() >= 5 && s.name.compare(s.name.size() - 5, 5, ".gguf") == 0
+                                && s.name.find("mmproj") == std::string::npos) {
+                                available.push_back(s.path);
+                            }
+                        }
+                    } else if (f.name.size() >= 5 && f.name.compare(f.name.size() - 5, 5, ".gguf") == 0
+                               && f.name.find("mmproj") == std::string::npos) {
+                        available.push_back(f.path);
+                    }
+                }
+            } catch (...) { /* ignore scan errors */ }
+            if (!available.empty()) {
+                models["available_models"] = available;
+            }
+        }
 
         res->ok(models);
         return res;

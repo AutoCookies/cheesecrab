@@ -56,6 +56,12 @@ int main() {
     assert(res.hit && "prompt cache must hit when query bytes match stored prefix");
     assert(res.cached_tokens > 0);
 
-    std::printf("test-pomaicache: passed (kv cache + prompt cache hit)\n");
+    // Strict correctness: different prefix must not hit (cache miss)
+    std::vector<std::uint64_t> other_tokens(64);
+    for (size_t i = 0; i < other_tokens.size(); ++i) other_tokens[i] = static_cast<std::uint64_t>(i + 999);
+    pomaicache::PromptResult miss = cache->PromptGet(other_tokens);
+    assert(!miss.hit && "prompt cache must miss when query does not match stored prefix");
+
+    std::printf("test-pomaicache: passed (kv cache + prompt cache hit + miss)\n");
     return 0;
 }

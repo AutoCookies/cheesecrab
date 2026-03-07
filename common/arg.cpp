@@ -927,6 +927,7 @@ bool common_params_parse(int argc, char ** argv, common_params & params, cheese_
             common_params_print_completion(ctx_arg);
             exit(0);
         }
+        common_apply_crab_presets(params);
         params.lr.init();
     } catch (const std::invalid_argument & ex) {
         fprintf(stderr, "%s\n", ex.what());
@@ -2681,6 +2682,51 @@ common_params_context common_params_parser_init(common_params & params, cheese_e
             params.hf_token = value;
         }
     ).set_env("HF_TOKEN"));
+    add_opt(common_arg(
+        {"--pull"}, "URL",
+        "download model before load (e.g. hf://user/repo or hf://user/repo:Q4_K_M); same resolution as --hf-repo",
+        [](common_params & params, const std::string & value) {
+            params.pull_model = value;
+        }
+    ).set_examples({CHEESE_EXAMPLE_COMMON, CHEESE_EXAMPLE_SERVER}).set_env("CHEESE_ARG_PULL"));
+    add_opt(common_arg(
+        {"--quickstart"},
+        "when no model path/hf-repo given, fetch a default demo model and run",
+        [](common_params & params) {
+            params.quickstart = true;
+        }
+    ).set_examples({CHEESE_EXAMPLE_COMMON, CHEESE_EXAMPLE_SERVER}).set_env("CHEESE_ARG_QUICKSTART"));
+    add_opt(common_arg(
+        {"--auto-quantize"},
+        {"--no-auto-quantize"},
+        "after download, quantize to Q4_0 if model is not already low-bit (default: disabled)",
+        [](common_params & params, bool value) {
+            params.auto_quantize = value;
+        }
+    ).set_examples({CHEESE_EXAMPLE_COMMON}).set_env("CHEESE_ARG_AUTO_QUANTIZE"));
+    add_opt(common_arg(
+        {"--extreme"},
+        {"--no-extreme"},
+        "Crab Mode: aggressive context squeeze, 10min cache TTL, vision squeeze",
+        [](common_params & params, bool value) {
+            params.extreme = value;
+        }
+    ).set_examples({CHEESE_EXAMPLE_COMMON, CHEESE_EXAMPLE_SERVER}).set_env("CHEESE_ARG_EXTREME"));
+    add_opt(common_arg(
+        {"--low-ram"},
+        {"--no-low-ram"},
+        "Ultra Crab Mode: max squeeze, Q2_K KV cache, ultra light",
+        [](common_params & params, bool value) {
+            params.low_ram = value;
+        }
+    ).set_examples({CHEESE_EXAMPLE_COMMON, CHEESE_EXAMPLE_SERVER}).set_env("CHEESE_ARG_LOW_RAM"));
+    add_opt(common_arg(
+        {"--stats"},
+        "print a one-line stats summary after run (e.g. token savings)",
+        [](common_params & params) {
+            params.stats = true;
+        }
+    ).set_examples({CHEESE_EXAMPLE_COMMON}).set_env("CHEESE_ARG_STATS"));
     add_opt(common_arg(
         {"--context-file"}, "FNAME",
         "file to load context from (use comma-separated values to specify multiple files)",

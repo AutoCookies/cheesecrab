@@ -29,8 +29,8 @@ struct prompt_cache_config {
     int64_t prompt_cache_ttl_ms            = 300000;
     int32_t prompt_cache_max_breakpoints   = 4;
     int32_t prompt_cache_lookback_blocks   = 20;
-    int32_t contextsqueeze_aggressiveness  = 6;
-    int32_t contextsqueeze_min_chars       = 4096;
+    int32_t contextsqueeze_aggressiveness  = 4;
+    int32_t contextsqueeze_min_chars       = 8192;
     std::string tokenizer_id               = "cheese";  // model/tokenizer id for cache keys
 };
 

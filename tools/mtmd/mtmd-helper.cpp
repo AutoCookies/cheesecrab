@@ -413,6 +413,9 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
                     override_nx = static_cast<int32_t>(squeezed_nx);
                     override_ny = static_cast<int32_t>(squeezed_ny);
                 }
+                if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+                    LOG_INF("Crab squeezed the image – from %zu to %zu tokens!\n", n_tokens, n_squeezed);
+                }
             }
         }
 #endif

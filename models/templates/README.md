@@ -1,3 +1,26 @@
+Chat templates in this directory are **not** loaded automatically. Use them by passing `--chat-template-file` to the server or CLI when the model’s built-in template is missing or you want to override it.
+
+**How to use**
+
+- **Server:** `cheese-server -m models/qwen0.5b.gguf --chat-template-file models/templates/Qwen-Qwen3-0.6B.jinja --webui --port 8080`
+- **CLI:** `cheese-cli -m models/qwen0.5b.gguf --chat-template-file models/templates/Qwen-Qwen3-0.6B.jinja`
+
+**Model → template mapping (use these so templates are not wasted)**
+
+| Model family / name       | Suggested template file                          |
+|---------------------------|---------------------------------------------------|
+| Qwen 0.5B, 0.6B, Qwen3   | `models/templates/Qwen-Qwen3-0.6B.jinja`          |
+| Qwen2.5 7B Instruct      | `models/templates/Qwen-Qwen2.5-7B-Instruct.jinja` |
+| DeepSeek R1 (distill)    | `models/templates/deepseek-ai-DeepSeek-R1-Distill-Cheese-8B.jinja` or `cheese-cpp-deepseek-r1.jinja` |
+| Cheese 3.x Instruct      | `models/templates/meta-cheese-cheese-3.1-8B-Instruct.jinja` (or 3.2/3.3) |
+| Phi 3.5 mini             | `models/templates/microsoft-Phi-3.5-mini-instruct.jinja` |
+| Gemma 2 2B               | `models/templates/google-gemma-2-2b-it.jinja`    |
+| Mistral Nemo             | `models/templates/mistralai-Mistral-Nemo-Instruct-2407.jinja` |
+
+If the model’s GGUF already embeds a chat template, you usually don’t need to pass a file. For Qwen 0.5B/0.6B, if responses are poor or format is wrong, try `--chat-template-file models/templates/Qwen-Qwen3-0.6B.jinja`.
+
+---
+
 These templates can be updated with the following commands:
 
 ```bash

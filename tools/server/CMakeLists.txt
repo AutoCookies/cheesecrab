@@ -56,6 +56,7 @@ set(TARGET_SRCS
 set(PUBLIC_ASSETS
     index.html.gz
     loading.html
+    crab-ui.html
 )
 
 foreach(asset ${PUBLIC_ASSETS})

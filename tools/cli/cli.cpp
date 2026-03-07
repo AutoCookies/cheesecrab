@@ -288,8 +288,39 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
+    // Crab philosophy: --pull or --quickstart to get a model before load
+    if (!params.pull_model.empty()) {
+        std::string link = params.pull_model;
+        if (string_starts_with(link, "hf://")) {
+            link = link.substr(5);
+        }
+        common_params_model pulled;
+        try {
+            if (cli_model_pull(link, params.hf_token, params.offline, pulled)) {
+                if (params.auto_quantize) {
+                    // TODO: run cheese-quantize subprocess if model not already Q4_0/Q5_0; use output path; log "Crab is quietly melting the model to Q4…"
+                }
+                params.model = pulled;
+            }
+        } catch (const std::exception & e) {
+            console::error("pull failed: %s\n", e.what());
+        }
+    } else if (params.quickstart && params.model.path.empty() && params.model.hf_repo.empty()) {
+        console::log("No model found – crab is fetching a tiny demo model…\n");
+        const char * default_repo = "microsoft/Phi-3-mini-4k-instruct-gguf:Q4_K_M";
+        common_params_model pulled;
+        try {
+            if (cli_model_pull(default_repo, params.hf_token, params.offline, pulled)) {
+                params.model = pulled;
+            }
+        } catch (const std::exception & e) {
+            console::error("quickstart fetch failed: %s\n", e.what());
+        }
+    }
+
     bool has_model = !params.model.path.empty();
     std::unique_ptr<std::thread> inference_thread;
+    double last_cache_savings_ratio = 0.0; // for --stats summary at exit
 
     if (has_model) {
         console::log("\nLoading model... "); // followed by loading animation
@@ -557,6 +588,9 @@ int main(int argc, char ** argv) {
             console::log("[ Prompt: %.1f t/s | Generation: %.1f t/s ]\n", timings.prompt_per_second, timings.predicted_per_second);
             console::set_display(DISPLAY_TYPE_RESET);
         }
+        if (params.stats && timings.cache_savings_ratio > 0.0) {
+            last_cache_savings_ratio = timings.cache_savings_ratio;
+        }
 
         if (params.single_turn) {
             break;
@@ -564,6 +598,15 @@ int main(int argc, char ** argv) {
     }
 
     console::set_display(DISPLAY_TYPE_RESET);
+
+    if (params.stats && has_model) {
+        if (last_cache_savings_ratio > 0.0) {
+            const int pct = static_cast<int>(last_cache_savings_ratio * 100.0 + 0.5);
+            console::log("Crab ate %d%% fewer tokens today! Saved.\n", pct);
+        } else {
+            console::log("Crab had a snack. (No cache stats this run.)\n");
+        }
+    }
 
     console::log("\nExiting...\n");
     if (inference_thread && inference_thread->joinable()) {
