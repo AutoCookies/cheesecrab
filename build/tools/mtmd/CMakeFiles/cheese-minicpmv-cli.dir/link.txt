@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/cheese-minicpmv-cli.dir/deprecation-warning.cpp.o" -o ../../bin/cheese-minicpmv-cli 

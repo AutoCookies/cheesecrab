@@ -1,1 +1,0 @@
-/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/bench-pomaicache.dir/bench-pomaicache.cpp.o" -o ../../bin/bench-pomaicache  -Wl,-rpath,/home/autocookie/pomaieco/cheesecrab/build/bin: ../../bin/libpomaicache.so 
