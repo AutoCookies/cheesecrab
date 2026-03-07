@@ -481,8 +481,8 @@ struct common_params {
     int64_t prompt_cache_ttl_ms            = 300000;                   // default TTL for cached prefixes (ms), can be overridden via CHEESE_TTL_SEC
     int32_t prompt_cache_max_breakpoints   = 4;                        // maximum number of cache_control breakpoints per prompt
     int32_t prompt_cache_lookback_blocks   = 20;                       // maximum number of message blocks to look back for stable prefix
-    int32_t contextsqueeze_aggressiveness  = 6;                        // default contextsqueezer aggressiveness (0-10)
-    int32_t contextsqueeze_min_chars       = 4096;                     // minimum input size (chars) before attempting compression
+    int32_t contextsqueeze_aggressiveness  = 4;                        // default contextsqueezer aggressiveness (0-10); keep low so chats stay clear
+    int32_t contextsqueeze_min_chars       = 8192;                    // minimum input size (chars) before attempting compression; avoid squeezing short chats
     int32_t vision_squeeze_aggressiveness  = 1;                        // vision token squeeze after encoder (0=off, 1-9=stronger; default 1 for edge)
 
     // RAG (PomaiDB): when non-empty path, server opens DB and augments prompts with retrieved chunks
@@ -563,6 +563,14 @@ struct common_params {
     // webui configs (server is API-only by default; set true to serve the web UI)
     bool webui = false;
     std::string webui_config_json;
+
+    // Crab philosophy: automated model handling and presets
+    std::string pull_model = "";   // e.g. hf://user/repo or hf://user/repo:Q4_K_M; download before load
+    bool quickstart        = false; // when no model given, fetch default demo model
+    bool auto_quantize     = false; // after download, optionally quantize to Q4_0 if not already low-bit
+    bool extreme           = false; // Crab Mode: aggressive squeeze, 10min cache TTL, vision squeeze
+    bool low_ram           = false; // Ultra Crab Mode: even more aggressive, prefer Q2_K/Q3
+    bool stats             = false; // CLI: print cute stats summary after run
 
     // "advanced" endpoints are disabled by default for better security
     bool endpoint_slots   = true;
@@ -799,6 +807,9 @@ private:
 using common_init_result_ptr = std::unique_ptr<common_init_result>;
 
 common_init_result_ptr common_init_from_params(common_params & params);
+
+// Apply Crab Mode / Ultra Crab Mode presets from params.extreme and params.low_ram; prints fun messages
+void common_apply_crab_presets(common_params & params);
 
 struct cheese_model_params     common_model_params_to_cheese  (      common_params & params);
 struct cheese_context_params   common_context_params_to_cheese(const common_params & params);

@@ -1,5 +1,6 @@
 #include "arg.h"
 #include "debug.h"
+#include "download.h"
 #include "log.h"
 #include "common.h"
 #include "sampling.h"
@@ -88,6 +89,7 @@ struct mtmd_cli_context {
 
     int n_threads    = 1;
     cheese_pos n_past = 0;
+    int32_t vision_squeeze_aggressiveness = 0;
 
     base_callback_data cb_data;
 
@@ -117,6 +119,7 @@ struct mtmd_cli_context {
         chat_history.clear();
         LOG_INF("%s: chat template example:\n%s\n", __func__, common_chat_format_example(tmpls.get(), params.use_jinja, params.default_template_kwargs).c_str());
 
+        vision_squeeze_aggressiveness = params.vision_squeeze_aggressiveness;
         init_vision_context(params);
 
         // load antiprompt tokens for legacy templates
@@ -262,7 +265,7 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg) {
                 ctx.n_batch, // n_batch
                 true, // logits_last
                 &new_n_past,
-                0)) {  // vision_squeeze_aggressiveness
+                ctx.vision_squeeze_aggressiveness)) {  // Crab: respect extreme/low-ram presets
         LOG_ERR("Unable to eval prompt\n");
         return 1;
     }
@@ -285,6 +288,29 @@ int main(int argc, char ** argv) {
 
     common_init();
     mtmd_helper_log_set(common_log_default_callback, nullptr);
+
+    // Auto-download mmproj from Hugging Face when model has hf_repo but mmproj path is missing
+    if (params.mmproj.path.empty() && !params.model.hf_repo.empty()) {
+        try {
+            auto res = common_get_hf_file(params.model.hf_repo, params.hf_token, params.offline);
+            if (!res.mmprojFile.empty()) {
+                LOG_INF("Crab is fetching mmproj from Hugging Face…\n");
+                params.mmproj.hf_repo = res.repo;
+                params.mmproj.hf_file = res.mmprojFile;
+                params.mmproj.url = get_model_endpoint() + res.repo + "/resolve/main/" + res.mmprojFile;
+                std::string cache_name = res.repo + "_" + res.mmprojFile;
+                string_replace_all(cache_name, "/", "_");
+                string_replace_all(cache_name, "\\", "_");
+                params.mmproj.path = fs_get_cache_file(cache_name);
+                if (!common_download_model(params.mmproj, params.hf_token, params.offline)) {
+                    LOG_ERR("Failed to download mmproj\n");
+                    params.mmproj = {};
+                }
+            }
+        } catch (const std::exception & e) {
+            LOG_WRN("Could not auto-download mmproj: %s\n", e.what());
+        }
+    }
 
     if (params.mmproj.path.empty()) {
         show_additional_info(argc, argv);

@@ -388,6 +388,24 @@ std::string common_params_get_system_info(const common_params & params) {
     return os.str();
 }
 
+void common_apply_crab_presets(common_params & params) {
+    // Apply extreme (Crab Mode) first, then low_ram (Ultra Crab) overrides for max savings
+    if (params.extreme) {
+        params.contextsqueeze_aggressiveness  = 6;  // crab mode but not so aggressive that chat context is lost
+        params.prompt_cache_ttl_ms            = 10 * 60 * 1000; // 10 min
+        params.vision_squeeze_aggressiveness   = 2;
+        fprintf(stderr, "Crab Mode activated! Light as a feather, tasty as cheese.\n");
+    }
+    if (params.low_ram) {
+        params.contextsqueeze_aggressiveness  = 7;  // ultra light but still understandable
+        params.prompt_cache_ttl_ms             = 5 * 60 * 1000; // 5 min
+        params.vision_squeeze_aggressiveness   = 3;
+        params.cache_type_k = GGML_TYPE_Q2_K;
+        params.cache_type_v = GGML_TYPE_Q2_K;
+        fprintf(stderr, "Ultra Crab Mode – ultra light!\n");
+    }
+}
+
 //
 // String utils
 //

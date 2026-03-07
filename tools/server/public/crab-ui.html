@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Cheese Crab</title>
+<style>
+/* Theme variables. To add a theme: (1) add {id:'id',label:'Name'} to THEMES in JS; (2) add [data-theme="id"]{--crab-bg:...;--crab-bg2:...;--crab-bg3:...;--crab-bg4:...;--crab-text:...;--crab-text-muted:...;--crab-accent:...;--crab-accent2:...;--crab-border:...;--crab-assistant:...;--crab-thinking:...;--crab-btn-bg:...;--crab-btn-text:...;} */
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;
+  background:var(--crab-bg);
+  color:var(--crab-text);
+}
+/* Default (dark) – cheese crab original */
+[data-theme="dark"],:root{--crab-bg:linear-gradient(180deg,#1a1a0a 0%,#2d1f0a 100%);--crab-bg2:#1a1a0a;--crab-bg3:rgba(0,0,0,.25);--crab-bg4:rgba(0,0,0,.3);--crab-text:#f4e4bc;--crab-text-muted:#8a7a4a;--crab-accent:#ffb347;--crab-accent2:#c9a227;--crab-border:#5c4a1a;--crab-assistant:#b8e0c8;--crab-thinking:#ffb347;--crab-btn-bg:#ffb347;--crab-btn-text:#1a1a0a;}
+[data-theme="light"]{--crab-bg:linear-gradient(180deg,#faf8f0 0%,#f5ecd6 100%);--crab-bg2:#fffef9;--crab-bg3:rgba(255,255,255,.8);--crab-bg4:rgba(245,236,214,.9);--crab-text:#2d2a1a;--crab-text-muted:#6b6344;--crab-accent:#c9781a;--crab-accent2:#a66b14;--crab-border:#c4a84a;--crab-assistant:#2d5a3a;--crab-thinking:#b8860b;--crab-btn-bg:#c9781a;--crab-btn-text:#fffef9;}
+[data-theme="beach"]{--crab-bg:linear-gradient(180deg,#0d3d56 0%,#1a5f7a 50%,#c9b896 100%);--crab-bg2:#0d3d56;--crab-bg3:rgba(13,61,86,.6);--crab-bg4:rgba(26,95,122,.85);--crab-text:#f0ebe0;--crab-text-muted:#a8c4d4;--crab-accent:#ffb347;--crab-accent2:#e8a030;--crab-border:#5c8aa0;--crab-assistant:#b8e0c8;--crab-thinking:#ffd89b;--crab-btn-bg:#e8a030;--crab-btn-text:#0d3d56;}
+/* ---- Top bar ---- */
+.topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;padding:0.5rem 1rem;border-bottom:1px solid var(--crab-border);background:var(--crab-bg4);min-height:3rem}
+.topbar-left{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.topbar-title{color:var(--crab-accent);font-size:1.25rem;font-weight:600;display:flex;align-items:center;gap:0.35rem}
+.tabs{display:flex;gap:0.25rem}
+.tabs button{padding:0.4rem 0.8rem;border:1px solid var(--crab-border);border-radius:6px;background:transparent;color:var(--crab-text-muted);cursor:pointer;font-size:0.9rem}
+.tabs button:hover{color:var(--crab-accent2);background:rgba(201,162,39,.15)}
+.tabs button.active{background:rgba(255,179,71,.2);color:var(--crab-accent);border-color:var(--crab-accent2)}
+.topbar-right{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
+.topbar-right label{color:var(--crab-text-muted);font-size:0.85rem}
+.topbar-right select{min-width:10rem;max-width:18rem;padding:0.35rem 0.5rem;border:1px solid var(--crab-border);border-radius:6px;background:var(--crab-bg2);color:var(--crab-text);font-size:0.9rem}
+.topbar-right .model-path{color:var(--crab-text-muted);font-size:0.75rem;max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topbar-right .btn-top{padding:0.35rem 0.7rem;border-radius:6px;border:1px solid var(--crab-border);background:var(--crab-bg3);color:var(--crab-text);cursor:pointer;font-size:0.85rem}
+.topbar-right .btn-top:hover{background:rgba(201,162,39,.2)}
+/* ---- Main content area ---- */
+.main{flex:1;display:flex;flex-direction:column;min-height:0;max-width:52rem;width:100%;margin:0 auto;padding:1rem}
+.tab-panel{display:none;flex:1;flex-direction:column;min-height:0}
+.tab-panel.active{display:flex}
+/* ---- Chat tab ---- */
+#chat-log{flex:1;overflow:auto;border:1px solid var(--crab-border);border-radius:8px;padding:1rem;background:var(--crab-bg3);min-height:12rem;margin-bottom:1rem;white-space:pre-wrap;word-break:break-word}
+#chat-log .msg-user{color:var(--crab-text);margin-bottom:0.5rem}
+#chat-log .msg-assistant{margin-bottom:0.75rem}
+#chat-log .assistant-label{color:var(--crab-text-muted);margin-right:0.25rem}
+#chat-log .assistant-content{color:var(--crab-assistant)}
+#chat-log .thinking{color:var(--crab-thinking);font-style:italic}
+.chat-form{display:flex;gap:0.5rem;flex-shrink:0}
+#prompt{flex:1;padding:0.6rem 0.8rem;border:1px solid var(--crab-border);border-radius:6px;background:var(--crab-bg2);color:var(--crab-text);font-size:1rem}
+#prompt::placeholder{color:var(--crab-text-muted)}
+#btn-send{padding:0.6rem 1rem;border-radius:6px;border:1px solid var(--crab-accent2);background:var(--crab-btn-bg);color:var(--crab-btn-text);font-weight:600;cursor:pointer}
+#btn-send:disabled{opacity:0.6;cursor:not-allowed}
+/* ---- Settings tab ---- */
+.settings-section{border:1px solid var(--crab-border);border-radius:8px;background:var(--crab-bg3);margin-bottom:1rem;padding:1rem}
+.settings-section h3{color:var(--crab-accent2);font-size:1rem;margin:0 0 0.75rem 0}
+.settings-section label{color:var(--crab-text-muted);display:block;margin-bottom:0.25rem;font-size:0.9rem}
+.settings-section input[type=number],.settings-section select,.settings-section textarea{width:100%;max-width:20rem;padding:0.4rem;border:1px solid var(--crab-border);border-radius:4px;background:var(--crab-bg2);color:var(--crab-text)}
+.settings-section textarea{min-height:4rem;resize:vertical}
+.model-hint{font-size:0.85rem;color:var(--crab-text-muted);margin-top:0.25rem}
+#small-model-note{margin-top:0.5rem;padding:0.5rem;border-radius:6px;background:rgba(201,162,39,.15);color:var(--crab-accent2)}
+#stats-inner{color:var(--crab-assistant)}
+/* ---- Footer ---- */
+.footer{margin-top:auto;padding:0.75rem 1rem;font-size:0.8rem;color:var(--crab-text-muted);text-align:center;border-top:1px solid var(--crab-border)}
+</style>
+</head>
+<body>
+<!-- SECTION: top-bar -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="topbar-title">&#129408; Cheese Crab</div>
+    <nav class="tabs">
+      <button type="button" id="tab-chat" class="active" aria-pressed="true">Chat</button>
+      <button type="button" id="tab-settings" aria-pressed="false">Settings</button>
+    </nav>
+  </div>
+  <div class="topbar-right">
+    <label for="model-select">Model:</label>
+    <select id="model-select" title="Current model"><option value="">Loading…</option></select>
+    <span id="model-path" class="model-path" title="Model path"></span>
+    <button type="button" id="btn-clear" class="btn-top" title="Clear conversation">Clear chat</button>
+  </div>
+</header>
+
+<!-- SECTION: main -->
+<main class="main">
+  <!-- SECTION: chat-tab -->
+  <section id="panel-chat" class="tab-panel active">
+    <div id="chat-log"></div>
+    <form id="chat-form" class="chat-form">
+      <input type="text" id="prompt" name="prompt" placeholder="Nibble prompt here…" autocomplete="off"/>
+      <button type="submit" id="btn-send">Send</button>
+    </form>
+  </section>
+
+  <!-- SECTION: settings-tab -->
+  <section id="panel-settings" class="tab-panel">
+    <div id="small-model-note" class="model-hint" style="display:none">Small model; answers may be short or repetitive. Try temperature 0.3–0.5 and lower max tokens.</div>
+    <div class="settings-section">
+      <h3>Theme</h3>
+      <p><label for="theme-select">Appearance</label><select id="theme-select" title="UI theme"></select></p>
+      <p class="model-hint">Contributors: add a new option here and a matching <code>[data-theme="id"]</code> block in the CSS with --crab-* variables.</p>
+    </div>
+    <div class="settings-section">
+      <h3>Generation options</h3>
+      <p><label for="opt-temperature">Temperature</label><input type="number" id="opt-temperature" min="0" max="2" step="0.1" value="0.8"/></p>
+      <p class="model-hint">Lower (0.3–0.5) for small models</p>
+      <p><label for="opt-max-tokens">Max tokens</label><input type="number" id="opt-max-tokens" min="1" max="32768" value="2048"/></p>
+      <p><label for="opt-top-p">Top P</label><input type="number" id="opt-top-p" min="0" max="1" step="0.05" value="0.95"/></p>
+    </div>
+    <div class="settings-section">
+      <h3>System prompt (optional)</h3>
+      <textarea id="system-prompt" placeholder="e.g. You are a helpful assistant."></textarea>
+    </div>
+    <div class="settings-section">
+      <h3>Server stats</h3>
+      <div id="stats-inner">—</div>
+    </div>
+    <div id="available-models-wrap" class="settings-section" style="display:none">
+      <h3>Available models (restart server with -m path to switch)</h3>
+      <p id="available-models" class="model-hint"></p>
+    </div>
+  </section>
+</main>
+
+<!-- SECTION: footer -->
+<footer class="footer" id="footer">
+  Cheese Crab — Pull and use local AI model as light and easy as a crab eating the cheese.
+</footer>
+
+<script>
+(function(){
+var log=document.getElementById('chat-log');
+var promptEl=document.getElementById('prompt');
+var btnSend=document.getElementById('btn-send');
+var form=document.getElementById('chat-form');
+var messages=[];
+var selectedModelId='';
+
+/* Theme registry: add {id:'mytheme',label:'My Theme'} and a [data-theme="mytheme"] CSS block to add a theme. */
+var THEMES=[{id:'dark',label:'Dark'},{id:'light',label:'Light'},{id:'beach',label:'Beach'}];
+var THEME_STORAGE_KEY='cheesecrab-theme';
+function applyTheme(id){
+var root=document.documentElement;
+if(!id||!THEMES.some(function(t){return t.id===id;}))id='dark';
+root.setAttribute('data-theme',id);
+try{localStorage.setItem(THEME_STORAGE_KEY,id);}catch(e){}
+var sel=document.getElementById('theme-select');
+if(sel&&sel.value!==id)sel.value=id;
+}
+function initTheme(){
+var sel=document.getElementById('theme-select');
+if(sel){sel.innerHTML='';THEMES.forEach(function(t){var o=document.createElement('option');o.value=t.id;o.textContent=t.label;sel.appendChild(o);});sel.onchange=function(){applyTheme(this.value);};}
+var saved;
+try{saved=localStorage.getItem(THEME_STORAGE_KEY);}catch(e){}
+applyTheme(saved||'dark');
+}
+
+function base(){return window.location.pathname.replace(/\/?$/,'/');}
+function append(cls,text){var d=document.createElement('div');d.className=cls;d.textContent=text;log.appendChild(d);log.scrollTop=log.scrollHeight;}
+function isSmallModel(name,meta){
+if(!name)return false;
+var n=(name+'').toLowerCase();
+if(/0\.5b|0\.6b|\.5b|\.6b|360m|410m/.test(n))return true;
+if(meta&&typeof meta.n_params==='number'&&meta.n_params>0&&meta.n_params<2e9)return true;
+return false;
+}
+
+function switchTab(tab){
+var chatBtn=document.getElementById('tab-chat');
+var settingsBtn=document.getElementById('tab-settings');
+var panelChat=document.getElementById('panel-chat');
+var panelSettings=document.getElementById('panel-settings');
+if(tab==='settings'){
+  settingsBtn.classList.add('active');settingsBtn.setAttribute('aria-pressed','true');
+  chatBtn.classList.remove('active');chatBtn.setAttribute('aria-pressed','false');
+  panelSettings.classList.add('active');panelChat.classList.remove('active');
+}else{
+  chatBtn.classList.add('active');chatBtn.setAttribute('aria-pressed','true');
+  settingsBtn.classList.remove('active');settingsBtn.setAttribute('aria-pressed','false');
+  panelChat.classList.add('active');panelSettings.classList.remove('active');
+}
+}
+document.getElementById('tab-chat').onclick=function(){switchTab('chat');};
+document.getElementById('tab-settings').onclick=function(){switchTab('settings');};
+
+function loadModels(){
+var b=base();
+fetch(b+'props').then(function(r){if(!r.ok)return;return r.json();}).then(function(props){
+if(!props){document.getElementById('model-select').innerHTML='<option value="">—</option>';return;}
+var name=props.model_alias||props.model_path||'Unknown';
+var path=props.model_path||'';
+var sel=document.getElementById('model-select');
+sel.innerHTML='';
+var opt=document.createElement('option');opt.value=name;opt.textContent=name;sel.appendChild(opt);
+selectedModelId=name;
+document.getElementById('model-path').textContent=path?' ('+path+')':'';
+var note=document.getElementById('small-model-note');
+if(note&&isSmallModel(name)){note.style.display='block';document.getElementById('opt-temperature').value=0.5;document.getElementById('opt-max-tokens').value=512;}
+}).catch(function(){document.getElementById('model-select').innerHTML='<option value="">—</option>';});
+fetch(b+'v1/models').then(function(r){if(!r.ok)return;return r.json();}).then(function(j){
+var sel=document.getElementById('model-select');
+if(!j)return;
+var arr=[];
+if(j.data)arr=Array.isArray(j.data)?j.data:[j.data];
+else if(j.models)arr=Array.isArray(j.models)?j.models:[j.models];
+if(arr.length>0){sel.innerHTML='';arr.forEach(function(m){var id=m.id||m.model||m.name;var label=m.id||m.model||m.name;if(!id)return;var o=document.createElement('option');o.value=id;o.textContent=label;sel.appendChild(o);});selectedModelId=sel.value;}
+var first=arr[0];
+if(first&&first.meta&&isSmallModel(first.id||first.model,first.meta)){var note=document.getElementById('small-model-note');if(note)note.style.display='block';document.getElementById('opt-temperature').value=0.5;document.getElementById('opt-max-tokens').value=512;}
+if(j&&Array.isArray(j.available_models)&&j.available_models.length>0){var wrap=document.getElementById('available-models-wrap');var el=document.getElementById('available-models');if(wrap&&el){wrap.style.display='block';el.textContent=j.available_models.map(function(p){return p.replace(/^.*[/\\]/,'');}).join(', ');}}
+}).catch(function(){});
+}
+function loadStats(){
+var b=base();
+fetch(b+'v1/stats').then(function(r){if(!r.ok)return;return r.json();}).then(function(s){
+var el=document.getElementById('stats-inner');
+if(!s){el.textContent='—';return;}
+var parts=[];
+if(typeof s.cache_hit_rate==='number')parts.push('Cache hit: '+(100*s.cache_hit_rate).toFixed(1)+'%');
+if(typeof s.token_saved_percent==='number')parts.push('Token saved: '+s.token_saved_percent.toFixed(1)+'%');
+if(typeof s.tokens_per_sec==='number')parts.push('Tokens/s: '+s.tokens_per_sec.toFixed(1));
+el.innerHTML=parts.length?'<span>'+parts.join(' · ')+'</span>':JSON.stringify(s);
+}).catch(function(){document.getElementById('stats-inner').textContent='—';});
+}
+function loadHealth(){
+if(document.getElementById('health-ok'))return;
+var b=base();
+fetch(b+'v1/health').then(function(r){if(!r.ok)return;var f=document.getElementById('footer');var s=document.createElement('span');s.id='health-ok';s.style.color='#8f8';s.textContent=' · Server OK';f.appendChild(s);}).catch(function(){});
+}
+initTheme();
+loadModels();loadStats();loadHealth();
+
+document.getElementById('model-select').onchange=function(){selectedModelId=this.value;};
+document.getElementById('btn-clear').onclick=function(){messages=[];log.innerHTML='';};
+
+function setThinking(on){var t=document.getElementById('thinking');if(on&&!t){var d=document.createElement('div');d.id='thinking';d.className='thinking';d.textContent='Crab is thinking…';log.appendChild(d);log.scrollTop=log.scrollHeight;}else if(!on&&t)t.remove();}
+function buildMessages(){
+var sys=document.getElementById('system-prompt').value.trim();
+var out=[];
+if(sys)out.push({role:'system',content:sys});
+for(var i=0;i<messages.length;i++)out.push(messages[i]);
+return out;
+}
+function getOptions(){
+var temp=parseFloat(document.getElementById('opt-temperature').value,10);
+var maxTok=parseInt(document.getElementById('opt-max-tokens').value,10);
+var topP=parseFloat(document.getElementById('opt-top-p').value,10);
+if(isNaN(temp))temp=0.8;if(isNaN(maxTok)||maxTok<1)maxTok=2048;if(isNaN(topP))topP=0.95;
+return {temperature:temp,max_tokens:maxTok,top_p:topP};
+}
+
+form.onsubmit=function(e){
+e.preventDefault();
+var msg=promptEl.value.trim();
+if(!msg)return;
+append('msg-user','You: '+msg);
+messages.push({role:'user',content:msg});
+promptEl.value='';
+btnSend.disabled=true;
+setThinking(true);
+var url=base()+'v1/chat/completions';
+var opts=getOptions();
+var body=JSON.stringify({model:selectedModelId||'',messages:buildMessages(),stream:true,temperature:opts.temperature,max_tokens:opts.max_tokens,top_p:opts.top_p});
+fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:body})
+.then(function(r){if(!r.ok)throw new Error(r.status);return r.body.getReader();})
+.then(function(reader){
+var chunk='';
+var ass='';
+var d=document.createElement('div');
+d.className='msg-assistant';
+var label=document.createElement('span');
+label.className='assistant-label';
+label.textContent='Crab: ';
+var content=document.createElement('span');
+content.className='assistant-content';
+d.appendChild(label);
+d.appendChild(content);
+log.appendChild(d);
+setThinking(false);
+function read(){
+reader.read().then(function(v){
+if(v.done){messages.push({role:'assistant',content:ass});btnSend.disabled=false;log.scrollTop=log.scrollHeight;loadStats();return;}
+chunk+=new TextDecoder().decode(v.value);
+var lines=chunk.split('\n');
+chunk=lines.pop()||'';
+for(var i=0;i<lines.length;i++){
+var line=lines[i];
+if(line.startsWith('data: ')){
+var data=line.slice(6);
+if(data==='[DONE]')continue;
+try{var j=JSON.parse(data);var delta=j.choices&&j.choices[0]&&j.choices[0].delta;if(delta&&delta.content){ass+=delta.content;content.textContent=ass;log.scrollTop=log.scrollHeight;}}catch(_){}
+}
+}
+read();
+}).catch(function(err){setThinking(false);btnSend.disabled=false;append('msg-user','Error: '+err.message);});
+}
+read();
+})
+.catch(function(err){setThinking(false);btnSend.disabled=false;append('msg-user','Error: '+err.message);});
+};
+})();
+</script>
+</body>
+</html>

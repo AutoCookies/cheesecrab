@@ -46,6 +46,16 @@ int main() {
     csq_free(&out);
     assert(out.data == nullptr);
 
-    std::printf("test-contextsqueezer: passed (squeezed %zu -> %zu bytes)\n", in_len, out_len);
+    // Strict correctness: with aggressiveness > 0, output should be squeezed (shorter or equal)
+    out = csq_buf{ nullptr, 0 };
+    rc = csq_squeeze_ex(in, 3, &out);
+    assert(rc == CSQ_OK && out.data != nullptr);
+    assert(out.len <= in_len + 64u && "squeezed output must not exceed input + margin");
+    if (out.len > 0 && in_len > 100u) {
+        assert(out.len <= in_len && "high aggressiveness should reduce long text length");
+    }
+    csq_free(&out);
+
+    std::printf("test-contextsqueezer: passed (squeezed %zu -> %zu bytes, aggr>0 reduces length)\n", in_len, out_len);
     return 0;
 }

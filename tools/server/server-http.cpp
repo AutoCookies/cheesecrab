@@ -11,6 +11,7 @@
 // auto generated files (see README.md for details)
 #include "index.html.gz.hpp"
 #include "loading.html.hpp"
+#include "crab-ui.html.hpp"
 
 //
 // HTTP implementation using cpp-httplib
@@ -263,17 +264,9 @@ bool server_http_context::init(const common_params & params) {
                 return 1;
             }
         } else {
-            // using embedded static index.html
-            srv->Get(params.api_prefix + "/", [](const httplib::Request & req, httplib::Response & res) {
-                if (req.get_header_value("Accept-Encoding").find("gzip") == std::string::npos) {
-                    res.set_content("Error: gzip is not supported by this browser", "text/plain");
-                } else {
-                    res.set_header("Content-Encoding", "gzip");
-                    // COEP and COOP headers, required by pyodide (python interpreter)
-                    res.set_header("Cross-Origin-Embedder-Policy", "require-corp");
-                    res.set_header("Cross-Origin-Opener-Policy", "same-origin");
-                    res.set_content(reinterpret_cast<const char*>(index_html_gz), index_html_gz_len, "text/html; charset=utf-8");
-                }
+            // minimal crab-themed Web UI at / (lightweight; full Svelte UI available via /app if built)
+            srv->Get(params.api_prefix + "/", [](const httplib::Request &, httplib::Response & res) {
+                res.set_content(reinterpret_cast<const char*>(crab_ui_html), crab_ui_html_len, "text/html; charset=utf-8");
                 return false;
             });
         }
