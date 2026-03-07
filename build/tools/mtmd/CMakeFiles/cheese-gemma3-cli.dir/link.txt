@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/cheese-gemma3-cli.dir/deprecation-warning.cpp.o" -o ../../bin/cheese-gemma3-cli 

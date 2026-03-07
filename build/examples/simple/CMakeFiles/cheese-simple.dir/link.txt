@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/cheese-simple.dir/simple.cpp.o" -o ../../bin/cheese-simple  -Wl,-rpath,/home/autocookie/pomaieco/cheesecrab/build/bin: ../../bin/libcheese.so.0.0.1 ../../bin/libggml.so.0.9.7 ../../bin/libggml-cpu.so.0.9.7 ../../bin/libggml-base.so.0.9.7 

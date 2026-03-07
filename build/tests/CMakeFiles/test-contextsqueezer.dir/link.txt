@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/test-contextsqueezer.dir/test-contextsqueezer.cpp.o" -o ../bin/test-contextsqueezer  -Wl,-rpath,/home/autocookie/pomaieco/cheesecrab/build/bin: ../bin/libcontextsqueeze.so 
