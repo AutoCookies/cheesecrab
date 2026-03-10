@@ -21,15 +21,11 @@ func (s *OSSpace) Name() string {
 	return "os"
 }
 
-func (s *OSSpace) RegisterRoutes(router *gin.RouterGroup) {
-	// Execute an arbitrary shell command safely (careful here)
-	router.POST("/exec", s.handleExec)
-	
-	// Get real-time OS health stats
-	router.GET("/health", s.handleHealth)
-	
-	// Basic info about the host
-	router.GET("/info", s.handleInfo)
+func (s *OSSpace) RegisterRoutes(r *gin.RouterGroup) {
+	r.GET("/health", s.handleHealth)
+	r.GET("/info", s.handleInfo)
+	r.POST("/exec", s.handleExec)
+	r.GET("/logs", s.handleLogs)
 }
 
 func (s *OSSpace) handleExec(c *gin.Context) {
@@ -81,4 +77,9 @@ func (s *OSSpace) handleInfo(c *gin.Context) {
 		"arch": runtime.GOARCH,
 		"cpus": runtime.NumCPU(),
 	})
+}
+
+func (s *OSSpace) handleLogs(c *gin.Context) {
+	logs := utils.GetErrorLogs()
+	c.JSON(http.StatusOK, logs)
 }

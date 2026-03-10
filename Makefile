@@ -1,7 +1,7 @@
-.PHONY: all build-core build-go run clean
+.PHONY: all build-core build-go build-app run clean
 
 # Default to building everything
-all: build-core build-go
+all: build-core build-go build-app
 
 # Build the C++ core cheesecrab-server
 build-core:
@@ -15,6 +15,12 @@ build-go:
 	cd server && go mod tidy && go build -o ../build/bin/cheesecrab-agent main.go
 	@echo "Go build complete. Binary is in build/bin/cheesecrab-agent"
 
+# Build the Electron React app
+build-app:
+	@echo "Building Electron App..."
+	cd app && npm install && npm run build
+	@echo "App build complete. Ready for 'npm run dev' or packaging."
+
 # Run the Go agent (assuming the core is already built)
 run:
 	@echo "Running cheesecrab-agent..."
@@ -24,3 +30,4 @@ run:
 clean:
 	rm -rf build/
 	rm -f server/cheesecrab-agent
+	rm -rf app/dist/

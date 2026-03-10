@@ -114,10 +114,8 @@ func (s *AIModelsSpace) handleServerStop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "server stopped"})
 }
 
-// handleProxy forwards requests like /v1/chat/completions or /models/load to the C++ server
 func (s *AIModelsSpace) handleProxy(c *gin.Context) {
 	if !s.runner.IsRunning() {
-		// Auto-start if not running
 		if err := s.runner.Start(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start underlying LLM server: " + err.Error()})
 			return
@@ -125,10 +123,16 @@ func (s *AIModelsSpace) handleProxy(c *gin.Context) {
 	}
 
 	targetURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%s", strconv.Itoa(s.cfg.LLMPort)))
-	proxy := httputil.NewSingleHostReverseProxy(targetURL)
 	
-	// Rewrite the path from /spaces/ai_models/proxy/... to /...
-	c.Request.URL.Path = c.Param("action")
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL.Scheme = targetURL.Scheme
+			req.URL.Host = targetURL.Host
+			req.Host = targetURL.Host // Required for some servers to accept the proxy request
+			// The action is the remaining wildcard path, e.g. /v1/models
+			req.URL.Path = c.Param("action")
+		},
+	}
 	
 	proxy.ServeHTTP(c.Writer, c.Request)
 }

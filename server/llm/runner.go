@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -56,12 +57,26 @@ func (r *Runner) Start() error {
 	
 	// Pipe stderr and stdout to our logger if needed, or simply let it inherit
 	// For now, let's keep it simple and just run it
-	err = r.cmd.Start()
+	stderr, err := r.cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("failed to start cheesecrab server: %v", err)
+		return fmt.Errorf("failed to get stderr pipe: %v", err)
 	}
 
-	utils.Log.Infof("Cheesecrab server started with PID %d", r.cmd.Process.Pid)
+	if err := r.cmd.Start(); err != nil {
+		r.cmd = nil
+		return fmt.Errorf("failed to start process: %v", err)
+	}
+
+	// Capture and log standard error from the C++ server
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			utils.AddErrorLog("cheese-server: " + line)
+		}
+	}()
+
+	utils.Log.Infof("Cheesecrab server started with PID %d", r.cmd.Process.Pid) // Corrected from r.pid = r.cmd.Process.PidInfof(...)
 	
 	// Wait a bit to ensure it doesn't crash immediately
 	time.Sleep(1 * time.Second)

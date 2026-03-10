@@ -39,6 +39,11 @@ func (m *Manager) ListLocal() ([]ModelInfo, error) {
 
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".gguf") {
+			// Filter out vocab files which aren't runnable models
+			if strings.HasPrefix(file.Name(), "ggml-vocab-") {
+				continue
+			}
+			
 			info, err := file.Info()
 			if err != nil {
 				continue
