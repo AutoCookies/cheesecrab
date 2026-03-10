@@ -1,15 +1,24 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { pathToFileURL } = require('url');
+const remoteMain = require('@electron/remote/main');
+
+remoteMain.initialize();
 
 let mainWindow;
+let syntaxVoidView = null;
+
+// Use the app's root directory as the base for all paths
+const APP_ROOT = app.getAppPath();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1280,
+    height: 820,
     minWidth: 900,
     minHeight: 600,
-    titleBarStyle: 'hidden', // Frameless window on Mac, or hidden controls on Windows
+    frame: true,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -19,30 +28,242 @@ function createWindow() {
   });
 
   const isDev = process.env.VITE_DEV_SERVER_URL;
-
   if (isDev) {
     mainWindow.loadURL(isDev);
-    // Un-comment to open dev tools by default
-    // mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadFile(path.join(APP_ROOT, 'dist/index.html'));
   }
 
-  // Handle window controls
+  // ── Window controls ──────────────────────────────────────────────────────
   ipcMain.on('window-minimize', () => mainWindow.minimize());
   ipcMain.on('window-maximize', () => {
-    if (mainWindow.isMaximized()) {
-      mainWindow.restore();
-    } else {
-      mainWindow.maximize();
-    }
+    if (mainWindow.isMaximized()) mainWindow.restore();
+    else mainWindow.maximize();
   });
   ipcMain.on('window-close', () => mainWindow.close());
+
+  // ── Atom/SyntaxVoid IPC handlers (ipc-helpers.js respondTo pattern) ──────
+  // These are called by SyntaxVoid's internal application-delegate.js via
+  // ipcHelpers.call(channel, responseChannel, ...args).
+  // They MUST reply on responseChannel or the promise will hang forever.
+  const atomIpcHandler = (channel, handler) => {
+    ipcMain.on(channel, async (event, responseChannel, ...args) => {
+      try {
+        const result = await handler(event, ...args);
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(responseChannel, result ?? null);
+        }
+      } catch (err) {
+        console.error(`[Main][${channel}] Error:`, err);
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(responseChannel, null);
+        }
+      }
+    });
+  };
+
+  // Generic window method dispatcher
+  atomIpcHandler('window-method', (event, method, ...args) => {
+    console.log(`[Main] window-method: ${method}`, args);
+    try {
+      if (mainWindow && typeof mainWindow[method] === 'function') {
+        return mainWindow[method](...args);
+      }
+    } catch (e) {
+      console.warn(`[Main] window-method ${method} failed:`, e.message);
+    }
+    return null;
+  });
+
+  // Specific window management handlers that SyntaxVoid calls during startup
+  atomIpcHandler('set-window-size', (event, width, height) => {
+    console.log(`[Main] set-window-size: ${width}x${height} (no-op in embedded mode)`);
+    return null; // No-op: we're embedded in a BrowserView, not a real window
+  });
+
+  atomIpcHandler('set-window-position', (event, x, y) => {
+    console.log(`[Main] set-window-position: ${x},${y} (no-op in embedded mode)`);
+    return null; // No-op
+  });
+
+  atomIpcHandler('center-window', () => {
+    return null; // No-op
+  });
+
+  atomIpcHandler('focus-window', () => {
+    if (syntaxVoidView) syntaxVoidView.webContents.focus();
+    return null;
+  });
+
+  atomIpcHandler('show-window', () => {
+    return null; // No-op: BrowserView is always shown when set
+  });
+
+  atomIpcHandler('hide-window', () => {
+    return null; // No-op
+  });
+
+  // Temporary window state (used for window state persistence)
+  let _temporaryWindowState = null;
+  atomIpcHandler('get-temporary-window-state', () => {
+    return _temporaryWindowState;
+  });
+
+  atomIpcHandler('set-temporary-window-state', (event, stateJSON) => {
+    _temporaryWindowState = stateJSON;
+    return null;
+  });
+
+  // Command installer (atom/apm CLI commands — no-op in embedded mode)
+  ipcMain.on('install-shell-commands', (event, responseChannel) => {
+    if (!event.sender.isDestroyed()) event.sender.send(responseChannel, null);
+  });
+
+  // ── SyntaxVoid settings (used by syntaxvoid-preload.cjs) ─────────────────
+  ipcMain.on('get-syntaxvoid-settings', (event) => {
+    const resourcePath = path.join(APP_ROOT, 'src/spaces/coding/syntaxvoid');
+    const atomHome = path.join(APP_ROOT, '.cheesecrab-syntaxvoid');
+
+    try { fs.mkdirSync(atomHome, { recursive: true }); } catch (_) { }
+
+    event.returnValue = {
+      resourcePath,
+      devMode: false,
+      atomHome,
+      appVersion: '1.130.1-dev',
+      appName: 'SyntaxVoid',
+      windowInitializationScript: path.join(resourcePath, 'src', 'initialize-application-window.js'),
+      userSettings: { core: { useLegacySessionStore: true } },
+      safeMode: false,
+      clearWindowState: false,
+      hasOpenFiles: false,
+      initialProjectRoots: [],
+    };
+  });
+
+  // ── window:loaded signal from Atom → tell React to hide the spinner ───────
+  ipcMain.on('window-command', (event, cmd) => {
+    if (
+      syntaxVoidView &&
+      event.sender === syntaxVoidView.webContents &&
+      cmd === 'window:loaded' &&
+      mainWindow && !mainWindow.isDestroyed()
+    ) {
+      console.log('[Main] SyntaxVoid reported window:loaded');
+      mainWindow.webContents.send('syntaxvoid-ready');
+    }
+  });
+
+  // ── Open SyntaxVoid ───────────────────────────────────────────────────────
+  ipcMain.on('open-syntaxvoid', (event, { theme, bounds }) => {
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      console.error('[SyntaxVoid] Invalid bounds received from renderer:', bounds);
+      return;
+    }
+
+    if (syntaxVoidView) {
+      mainWindow.setBrowserView(syntaxVoidView);
+      syntaxVoidView.setBounds(bounds);
+      syntaxVoidView.webContents.focus();
+      return;
+    }
+
+    console.log('[Main] Creating SyntaxVoid BrowserView with bounds:', bounds);
+
+    syntaxVoidView = new BrowserView({
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        preload: path.join(__dirname, 'syntaxvoid-preload.cjs'),
+      },
+    });
+
+    remoteMain.enable(syntaxVoidView.webContents);
+
+    // Use dark theme background if applicable
+    syntaxVoidView.setBackgroundColor(theme === 'dark' ? '#111827' : '#ffffff');
+
+    mainWindow.setBrowserView(syntaxVoidView);
+    syntaxVoidView.setBounds(bounds);
+
+    // Focus the view immediately to avoid 'is-blurred' state
+    syntaxVoidView.webContents.focus();
+
+    // Open DevTools in detached mode for debugging if needed
+    // syntaxVoidView.webContents.openDevTools({ mode: 'detach' });
+
+    syntaxVoidView.webContents.on('console-message', (_e, level, message) => {
+      console.log(`[SyntaxVoid renderer][${level}]`, message);
+    });
+
+    syntaxVoidView.webContents.on('did-fail-load', (_e, code, desc, url) => {
+      console.error('[SyntaxVoid] did-fail-load:', code, desc, url);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('syntaxvoid-load-error', desc || `Load failed (${code})`);
+      }
+    });
+
+    const htmlPath = path.join(APP_ROOT, 'src/spaces/coding/syntaxvoid/static/index.html');
+    const fileUrl = pathToFileURL(htmlPath).href;
+
+    console.log('[SyntaxVoid] Loading URL:', fileUrl);
+    syntaxVoidView.webContents.loadURL(fileUrl)
+      .then(() => {
+        console.log('[SyntaxVoid] loadURL OK');
+        // Ensure focus after load
+        if (syntaxVoidView) syntaxVoidView.webContents.focus();
+      })
+      .catch(err => {
+        console.error('[SyntaxVoid] load error:', err?.message || err);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('syntaxvoid-load-error', err?.message || 'Load failed');
+        }
+      });
+
+    // Theme injection
+    const cssVars = theme === 'dark'
+      ? `:root{--syntaxvoid-bg:#1e1e24;--syntaxvoid-text:#e2e8f0;--syntaxvoid-accent:#f87171;--syntaxvoid-border:#334155;}`
+      : `:root{--syntaxvoid-bg:#fff;--syntaxvoid-text:#0f172a;--syntaxvoid-accent:#ef4444;--syntaxvoid-border:#e2e8f0;}`;
+
+    syntaxVoidView.webContents.on('dom-ready', () => {
+      console.log('[SyntaxVoid] DOM Ready, injecting CSS...');
+      syntaxVoidView.webContents.insertCSS(cssVars + `
+        html, body { background: var(--syntaxvoid-bg) !important; width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+        body.is-blurred { filter: none !important; opacity: 1 !important; }
+        atom-workspace { 
+          background-color: var(--syntaxvoid-bg) !important; 
+          color: var(--syntaxvoid-text) !important; 
+          display: flex !important; 
+          width: 100% !important; 
+          height: 100% !important; 
+          visibility: visible !important; 
+          opacity: 1 !important; 
+        }
+        atom-panel-container{border-color:var(--syntaxvoid-border)!important;}
+        .tab-bar .tab.active{text-shadow:none;border-bottom:2px solid var(--syntaxvoid-accent)!important;color:var(--syntaxvoid-accent)!important;}
+        .tree-view{background:transparent!important;}
+      `);
+    });
+  });
+
+  ipcMain.on('resize-syntaxvoid', (_e, bounds) => {
+    if (syntaxVoidView && bounds && bounds.width > 0) {
+      console.log('[Main] Resizing SyntaxVoid to:', bounds);
+      syntaxVoidView.setBounds(bounds);
+    }
+  });
+
+  ipcMain.on('close-syntaxvoid', () => {
+    if (syntaxVoidView) {
+      console.log('[Main] Closing SyntaxVoid BrowserView');
+      mainWindow.removeBrowserView(syntaxVoidView);
+      syntaxVoidView = null;
+    }
+  });
 }
 
 app.whenReady().then(() => {
   createWindow();
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

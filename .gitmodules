@@ -1,0 +1,3 @@
+[submodule "app/src/spaces/coding/syntaxvoid"]
+	path = app/src/spaces/coding/syntaxvoid
+	url = https://github.com/AutoCookies/syntaxvoid.git
