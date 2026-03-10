@@ -98,7 +98,15 @@ func (s *AgentSpace) handleRun(c *gin.Context) {
 		flusher.Flush()
 	}
 
-	utils.Log.Infof("[AgentSpace] Path %s completed: %s", path.ID, path.Status)
+	if path.Status == "failed" {
+		if path.Answer != "" {
+			utils.Log.Warnf("[AgentSpace] Path %s completed: %s — %s", path.ID, path.Status, path.Answer)
+		} else {
+			utils.Log.Warnf("[AgentSpace] Path %s completed: %s", path.ID, path.Status)
+		}
+	} else {
+		utils.Log.Infof("[AgentSpace] Path %s completed: %s", path.ID, path.Status)
+	}
 }
 
 // ─── GET /v1/spaces/agent/tools ───────────────────────────────────────────────

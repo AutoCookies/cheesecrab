@@ -4,8 +4,14 @@
 
 Unified **edge AI inference engine**: run local LLMs on low-resource devices with minimal RAM. Think of it as local AI as lightweight as a crab—optimized for edge, laptops, and machines where you want to run 8B–13B models in about 4GB RAM.
 
-Cheese Crab is built on [cheese.cpp](https://github.com/AutoCookies/cheesebrain) and adds mandatory context compression, prompt caching, optional RAG, and vision-token reduction so that inference stays fast and memory use stays low. Let the crab nibble your prompt.
+Cheese Crab is built on [Cheese Brain](https://github.com/AutoCookies/cheesebrain) and adds mandatory context compression, prompt caching, optional RAG, and vision-token reduction so that inference stays fast and memory use stays low. Let the crab nibble your prompt.
 
+Cheese Crab also is the combinations of many projects:
+- [PomaiDB](https://github.com/AutoCookies/pomaidb)
+- [PomaiCache](https://github.com/AutoCookies/pomaicache)
+- [ContextSqueezer](https://github.com/AutoCookies/contextsqueezer)
+- [CrabPath](https://github.com/AutoCookies/crabpath)
+- [SyntaxVoid](https://github.com/AutoCookies/syntaxvoid)
 ---
 
 ## 5-Minute Quickstart
@@ -38,6 +44,26 @@ Get from zero to chat in three steps.
    ```
 
 For **Crab Mode** (aggressive squeeze, 10 min cache): add `--extreme`. For **Ultra Crab Mode** (ultra light, Q2_K cache): add `--low-ram`.
+
+---
+
+## Cheesecrab Super (Electron + Go agent + cheese-server)
+
+The full stack (Electron dashboard, Go agent API, and local LLM) can be built and run from the repo root on Linux.
+
+**Prerequisites:** CMake 3.14+, C++17 toolchain, Go, Node.js, and yarn.
+
+1. **Build everything**
+   ```bash
+   ./build.sh
+   ```
+   This builds the C++ core (`build/bin/cheese-server`), the Go agent (`build/bin/cheesecrab-agent`), and the Electron app (`app/dist`). Use `./build.sh --fast` to skip the C++ build and only rebuild the Go agent and app.
+
+2. **Run the stack**
+   ```bash
+   ./run.sh
+   ```
+   This starts the Go agent in the background (API on port **11435**), then launches the Electron UI. The underlying LLM server (cheese-server) is started on demand by the app and listens on **LLM_PORT** (default **8081**). Models are stored in `./models` unless you set `MODELS_DIR`.
 
 ---
 

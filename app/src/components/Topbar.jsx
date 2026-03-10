@@ -1,7 +1,7 @@
 import React from 'react';
-import { Minus, Square, X, Settings, Moon, Sun } from 'lucide-react';
+import { Minus, Square, X, Settings, Moon, Sun, Bot } from 'lucide-react';
 
-export default function Topbar({ theme, toggleTheme }) {
+export default function Topbar({ theme, toggleTheme, agentOpen, onToggleAgent }) {
     const handleMinimize = () => window.electronAPI?.windowMinimize();
     const handleMaximize = () => window.electronAPI?.windowMaximize();
     const handleClose = () => window.electronAPI?.windowClose();
@@ -25,6 +25,17 @@ export default function Topbar({ theme, toggleTheme }) {
                     title="Settings"
                 >
                     <Settings size={18} />
+                </button>
+
+                <button
+                    onClick={onToggleAgent}
+                    className={`p-1.5 rounded-md transition-colors mr-2 ${agentOpen
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--accent)]'
+                        }`}
+                    title="Toggle CrabAgent"
+                >
+                    <Bot size={18} />
                 </button>
 
                 <div className="h-5 w-px bg-[var(--border-color)] mx-1" />

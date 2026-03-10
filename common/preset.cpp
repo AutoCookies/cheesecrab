@@ -366,7 +366,11 @@ common_presets common_preset_context::load_from_cache() const {
     for (const auto & model : cached_models) {
         common_preset preset;
         preset.name = model.to_string();
-        preset.set_option(*this, "CHEESE_ARG_HF_REPO", model.to_string());
+        if (model.is_docker) {
+            preset.set_option(*this, "CHEESE_ARG_DOCKER_REPO", model.to_string());
+        } else {
+            preset.set_option(*this, "CHEESE_ARG_HF_REPO", model.to_string());
+        }
         out[preset.name] = preset;
     }
 

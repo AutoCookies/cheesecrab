@@ -15,11 +15,11 @@ build-go:
 	cd server && go mod tidy && go build -o ../build/bin/cheesecrab-agent main.go
 	@echo "Go build complete. Binary is in build/bin/cheesecrab-agent"
 
-# Build the Electron React app
+# Build the Electron React app (uses yarn to match run.sh which runs yarn start)
 build-app:
 	@echo "Building Electron App..."
-	cd app && npm install && npm run build
-	@echo "App build complete. Ready for 'npm run dev' or packaging."
+	cd app && yarn install && yarn build
+	@echo "App build complete. Output in app/dist. Run ./run.sh or 'cd app && yarn start'."
 
 # Run the Go agent (assuming the core is already built)
 run:

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, StopCircle, Crab, Wrench, Eye, CheckCircle, AlertCircle, Loader2, Shield } from 'lucide-react';
+import { startServer, loadModelContext, checkLoadedModels } from '../utils/api';
 
 const API_BASE = 'http://localhost:11435';
 
@@ -103,11 +104,14 @@ function ErrorCard({ payload }) {
 
 // ─── Main Agent Space ────────────────────────────────────────────────────────
 
+const NO_MODEL_MSG = 'no model loaded';
+
 export default function AgentSpace() {
     const [goal, setGoal] = useState('');
     const [events, setEvents] = useState([]);
     const [running, setRunning] = useState(false);
-    const [status, setStatus] = useState(null); // 'completed' | 'failed'
+    const [status, setStatus] = useState(null); // 'completed' | 'failed' | 'aborted'
+    const [showNoModelBanner, setShowNoModelBanner] = useState(false);
     const streamRef = useRef(null);
     const bottomRef = useRef(null);
 
@@ -120,13 +124,29 @@ export default function AgentSpace() {
 
         setEvents([]);
         setStatus(null);
+        setShowNoModelBanner(false);
         setRunning(true);
 
         try {
+            const defaultModel = localStorage.getItem('defaultModel') || '';
+            let modelToUse = defaultModel;
+            if (!modelToUse) {
+                try {
+                    const loaded = await checkLoadedModels();
+                    if (loaded?.length) modelToUse = loaded[0].id;
+                } catch (_) { /* no models */ }
+            }
+            try {
+                await startServer();
+                if (modelToUse) await loadModelContext(modelToUse);
+            } catch (warmErr) {
+                console.warn('[Agent] Pre-load model:', warmErr?.message || warmErr);
+            }
+            const body = modelToUse ? { goal, model: modelToUse } : { goal };
             const resp = await fetch(`${API_BASE}/v1/spaces/agent/run`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ goal }),
+                body: JSON.stringify(body),
             });
 
             const reader = resp.body.getReader();
@@ -146,6 +166,9 @@ export default function AgentSpace() {
                             if (ev.type === 'path_complete') {
                                 setStatus(ev.status);
                             } else {
+                                if (ev.type === 'error' && typeof ev.payload === 'string' && ev.payload.toLowerCase().includes(NO_MODEL_MSG)) {
+                                    setShowNoModelBanner(true);
+                                }
                                 setEvents(prev => [...prev, ev]);
                             }
                         } catch { /* skip malformed */ }
@@ -155,7 +178,9 @@ export default function AgentSpace() {
             };
             pump();
         } catch (err) {
-            setEvents(prev => [...prev, { type: 'error', step: 0, payload: err.message }]);
+            const msg = err.message || String(err);
+            if (msg.toLowerCase().includes(NO_MODEL_MSG)) setShowNoModelBanner(true);
+            setEvents(prev => [...prev, { type: 'error', step: 0, payload: msg }]);
             setRunning(false);
         }
     };
@@ -200,7 +225,19 @@ export default function AgentSpace() {
                 {status === 'completed' && !running && (
                     <span className="ml-auto text-xs text-green-400">✓ Path completed</span>
                 )}
+                {status === 'failed' && !running && (
+                    <span className="ml-auto text-xs text-red-400">Path failed</span>
+                )}
             </div>
+
+            {showNoModelBanner && (
+                <div className="mx-4 mt-2 p-3 rounded-lg bg-amber-900/30 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                    <div>
+                        <strong>No model loaded.</strong> Open <strong>AI Models</strong> in the sidebar, pull a GGUF model via a direct URL, then start the server (or set a default model). Then try the agent again.
+                    </div>
+                </div>
+            )}
 
             {/* ── Reasoning Stream ── */}
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-0">

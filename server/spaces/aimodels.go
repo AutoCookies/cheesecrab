@@ -71,12 +71,14 @@ func (s *AIModelsSpace) handlePull(c *gin.Context) {
 		return
 	}
 
-	// Simple check, do it async to avoid blocking HTTP context, 
-	// in a real app would want websockets or polling to track status
+	// Run pull in background; client can poll /local or /proxy/v1/models to see when the model appears
 	go func() {
+		utils.Log.Infof("[AIModels] Pull started: %s -> %s", req.URL, req.Filename)
 		err := s.manager.Pull(req.URL, req.Filename)
 		if err != nil {
-			utils.Log.Errorf("Error pulling model: %v", err)
+			utils.Log.Errorf("[AIModels] Pull failed for %s: %v", req.Filename, err)
+		} else {
+			utils.Log.Infof("[AIModels] Pull completed: %s", req.Filename)
 		}
 	}()
 	

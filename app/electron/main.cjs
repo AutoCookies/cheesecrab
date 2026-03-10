@@ -95,6 +95,51 @@ function createWindow() {
     return null;
   });
 
+  // ── pick-folder: Ctrl+Shift+O in SyntaxVoid calls this to open a directory ─
+  atomIpcHandler('pick-folder', async (_event) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open Folder',
+      properties: ['openDirectory', 'multiSelections'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths;
+  });
+
+  // These are sent by application:open-folder and application:open-file
+  ipcMain.on('open-chosen-folder', async (event, defaultPath) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open Folder',
+      defaultPath: defaultPath,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      // Re-use the existing 'open' logic by calling it with the path
+      ipcMain.emit('open', event, { pathsToOpen: result.filePaths });
+    }
+  });
+
+  ipcMain.on('open-chosen-file', async (event, defaultPath) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open File',
+      defaultPath: defaultPath,
+      properties: ['openFile', 'multiSelections'],
+    });
+    if (!result.canceled && result.filePaths.length > 0) {
+      ipcMain.emit('open', event, { pathsToOpen: result.filePaths });
+    }
+  });
+
+  // Generic open-dialog (some Atom code paths use this directly)
+  atomIpcHandler('show-open-dialog', async (_event, opts = {}) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: opts.properties ?? ['openFile'],
+      filters: opts.filters ?? [],
+      title: opts.title ?? 'Open',
+    });
+    if (result.canceled) return null;
+    return result.filePaths;
+  });
+
   atomIpcHandler('show-window', () => {
     return null; // No-op: BrowserView is always shown when set
   });
@@ -279,6 +324,25 @@ function createWindow() {
       console.log('[Main] Resizing SyntaxVoid to:', bounds);
       syntaxVoidView.setBounds(bounds);
     }
+  });
+
+  // ── Hide: detach BrowserView from window but keep it alive in memory ────────
+  ipcMain.on('hide-syntaxvoid', () => {
+    if (syntaxVoidView) {
+      console.log('[Main] Hiding SyntaxVoid BrowserView (tab switch)');
+      mainWindow.removeBrowserView(syntaxVoidView);
+    }
+  });
+
+  // ── Show: re-attach existing BrowserView and sync bounds ────────────────────
+  ipcMain.on('show-syntaxvoid', (_e, bounds) => {
+    if (!syntaxVoidView) return;
+    console.log('[Main] Showing SyntaxVoid BrowserView with bounds:', bounds);
+    mainWindow.setBrowserView(syntaxVoidView);
+    if (bounds && bounds.width > 0) {
+      syntaxVoidView.setBounds(bounds);
+    }
+    syntaxVoidView.webContents.focus();
   });
 
   ipcMain.on('close-syntaxvoid', () => {

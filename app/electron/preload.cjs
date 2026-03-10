@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // SyntaxVoid BrowserView controls — bounds are measured by the React component
   openSyntaxVoid: (theme, bounds) => ipcRenderer.send('open-syntaxvoid', { theme, bounds }),
   closeSyntaxVoid: () => ipcRenderer.send('close-syntaxvoid'),
+  showSyntaxVoid: (bounds) => ipcRenderer.send('show-syntaxvoid', bounds),
+  hideSyntaxVoid: () => ipcRenderer.send('hide-syntaxvoid'),
   resizeSyntaxVoid: (bounds) => ipcRenderer.send('resize-syntaxvoid', bounds),
 
   // Events coming back from the main process

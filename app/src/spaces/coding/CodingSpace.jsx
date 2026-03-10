@@ -1,71 +1,78 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 
-export default function CodingSpace({ theme }) {
+// Track whether the BrowserView has ever been created, so we
+// can skip the spinner on subsequent visits to the tab.
+let _syntaxVoidEverLoaded = false;
+
+export default function CodingSpace({ theme, agentPanelOpen, agentPanelWidth = 0, onProjectOpen }) {
     const containerRef = useRef(null);
-    const [isLoaded, setIsLoaded] = useState(false);
+    const [isLoaded, setIsLoaded] = useState(_syntaxVoidEverLoaded);
     const [loadError, setLoadError] = useState(null);
 
-    const updateBounds = () => {
-        if (!containerRef.current || !window.electronAPI?.resizeSyntaxVoid) return;
+    // Compute bounds, subtracting the agent panel width when it's open
+    const getBounds = () => {
+        if (!containerRef.current) return null;
         const rect = containerRef.current.getBoundingClientRect();
-        const bounds = {
+        const panelOffset = agentPanelOpen ? agentPanelWidth : 0;
+        return {
             x: Math.round(rect.left),
             y: Math.round(rect.top),
-            width: Math.round(rect.width),
+            width: Math.round(rect.width) - panelOffset,
             height: Math.round(rect.height),
         };
-        window.electronAPI.resizeSyntaxVoid(bounds);
     };
 
     useLayoutEffect(() => {
         const container = containerRef.current;
         if (!container || !window.electronAPI?.openSyntaxVoid) return;
 
-        // Perform initial measurement and open the view
-        const rect = container.getBoundingClientRect();
-        const bounds = {
-            x: Math.round(rect.left),
-            y: Math.round(rect.top),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-        };
+        const bounds = getBounds();
+        if (!bounds || bounds.width <= 0) return;
 
-        console.log('[CodingSpace] Opening SyntaxVoid with bounds:', bounds);
-        window.electronAPI.openSyntaxVoid(theme, bounds);
+        if (_syntaxVoidEverLoaded) {
+            console.log('[CodingSpace] Showing existing SyntaxVoid with bounds:', bounds);
+            window.electronAPI.showSyntaxVoid(bounds);
+        } else {
+            console.log('[CodingSpace] Opening SyntaxVoid for the first time with bounds:', bounds);
+            window.electronAPI.openSyntaxVoid(theme, bounds);
+        }
 
-        const observer = new ResizeObserver((entries) => {
-            for (let entry of entries) {
-                const screenRect = entry.target.getBoundingClientRect();
-                const newBounds = {
-                    x: Math.round(screenRect.left),
-                    y: Math.round(screenRect.top),
-                    width: Math.round(screenRect.width),
-                    height: Math.round(screenRect.height),
-                };
-                window.electronAPI.resizeSyntaxVoid(newBounds);
-            }
+        const observer = new ResizeObserver(() => {
+            const b = getBounds();
+            if (b && b.width > 0) window.electronAPI.resizeSyntaxVoid(b);
         });
 
         observer.observe(container);
 
-        // Safety timeout to ensure we show the view if the ready signal is lost
-        const fallback = setTimeout(() => setIsLoaded(true), 8000);
+        const fallback = setTimeout(() => {
+            _syntaxVoidEverLoaded = true;
+            setIsLoaded(true);
+        }, 8000);
 
         return () => {
             observer.disconnect();
             clearTimeout(fallback);
-            if (window.electronAPI?.closeSyntaxVoid) {
-                window.electronAPI.closeSyntaxVoid();
+            if (window.electronAPI?.hideSyntaxVoid) {
+                window.electronAPI.hideSyntaxVoid();
             }
         };
     }, [theme]);
+
+    // Re-sync bounds whenever the agent panel opens or closes
+    useEffect(() => {
+        const bounds = getBounds();
+        if (bounds && bounds.width > 0 && window.electronAPI?.resizeSyntaxVoid) {
+            window.electronAPI.resizeSyntaxVoid(bounds);
+        }
+    }, [agentPanelOpen, agentPanelWidth]);
 
     useEffect(() => {
         if (!window.electronAPI) return;
 
         const onReady = () => {
             console.log('[CodingSpace] Received ready signal from SyntaxVoid');
+            _syntaxVoidEverLoaded = true;
             setIsLoaded(true);
         };
         const onError = (msg) => {

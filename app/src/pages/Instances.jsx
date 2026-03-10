@@ -156,8 +156,22 @@ export default function Instances() {
                             <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
                                 <span className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Currently Loaded Models</span>
                                 {loadedModels.length === 0 ? (
-                                    <div className="text-[var(--text-secondary)] text-sm italic py-2">
-                                        No models currently loaded.
+                                    <div className="flex flex-col gap-2">
+                                        <div className="text-[var(--text-secondary)] text-sm italic py-2">
+                                            No models currently loaded.
+                                        </div>
+                                        {localStorage.getItem('defaultModel') && (
+                                            <div className="bg-[var(--bg-primary)] border border-blue-900/20 rounded-md p-3 flex items-center gap-3">
+                                                <div className="text-blue-400">
+                                                    <Cpu size={16} />
+                                                </div>
+                                                <div>
+                                                    <div className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Default Model Intent</div>
+                                                    <div className="text-sm font-medium text-[var(--text-primary)]">{localStorage.getItem('defaultModel')}</div>
+                                                    <p className="text-[10px] text-[var(--text-secondary)] mt-0.5">This model will be loaded automatically on your first chat request.</p>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 ) : (
                                     loadedModels.map(m => (

@@ -32,28 +32,36 @@ func NewManager(cfg *config.Config) *Manager {
 func (m *Manager) ListLocal() ([]ModelInfo, error) {
 	var models []ModelInfo
 
-	files, err := os.ReadDir(m.config.ModelsDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read models dir: %v", err)
-	}
-
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".gguf") {
+	err := filepath.WalkDir(m.config.ModelsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".gguf") {
 			// Filter out vocab files which aren't runnable models
-			if strings.HasPrefix(file.Name(), "ggml-vocab-") {
-				continue
+			if strings.HasPrefix(d.Name(), "ggml-vocab-") {
+				return nil
 			}
 			
-			info, err := file.Info()
+			info, err := d.Info()
 			if err != nil {
-				continue
+				return nil
 			}
+			
+			// Use the filename for simple UI representation, or path relative to models dir
+			relName, _ := filepath.Rel(m.config.ModelsDir, path)
+			
 			models = append(models, ModelInfo{
-				Name: file.Name(),
-				Path: filepath.Join(m.config.ModelsDir, file.Name()),
+				Name: relName, // Shows subdirectory/file.gguf if nested
+				Path: path,
 				Size: info.Size(),
 			})
 		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read models dir: %v", err)
 	}
 
 	return models, nil
@@ -61,8 +69,12 @@ func (m *Manager) ListLocal() ([]ModelInfo, error) {
 
 // Pull downloads a model directly from a given URL to the models directory
 func (m *Manager) Pull(url, filename string) error {
+	// Prevent path traversal: filename must be a single path component
+	if filename != filepath.Base(filename) || strings.Contains(filename, "..") {
+		return fmt.Errorf("invalid filename: must be a single path component")
+	}
 	destPath := filepath.Join(m.config.ModelsDir, filename)
-	
+
 	// Create the file
 	out, err := os.Create(destPath)
 	if err != nil {

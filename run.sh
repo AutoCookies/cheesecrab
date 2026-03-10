@@ -3,9 +3,20 @@ set -e
 
 echo "🦀 Starting Cheesecrab Super..."
 
-if [ ! -f "build/bin/cheese-server" ] || [ ! -f "build/bin/cheesecrab-agent" ] || [ ! -d "app/dist" ]; then
-    echo "⚠️ Seems the application hasn't been built yet!"
-    echo "   Please run ./build.sh first before starting it."
+if [ ! -f "build/bin/cheese-server" ]; then
+    echo "⚠️ build/bin/cheese-server not found. Run ./build.sh first."
+    exit 1
+fi
+if [ ! -f "build/bin/cheesecrab-agent" ]; then
+    echo "⚠️ build/bin/cheesecrab-agent not found. Run ./build.sh first."
+    exit 1
+fi
+if [ ! -d "app/dist" ]; then
+    echo "⚠️ app/dist not found (Electron app not built). Run ./build.sh first."
+    exit 1
+fi
+if ! command -v yarn &>/dev/null; then
+    echo "⚠️ yarn not found. Install Node.js and yarn, or run 'cd app && npm start' after building."
     exit 1
 fi
 
