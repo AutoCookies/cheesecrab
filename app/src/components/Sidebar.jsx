@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, TerminalSquare, Cpu, Code2, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Database, TerminalSquare, Cpu, Code2, BookOpen, ChevronLeft, ChevronRight, Bot } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -8,6 +8,7 @@ const SPACES = [
     { id: 'instances', label: 'Instances', icon: Cpu },
     { id: 'logs', label: 'Logs', icon: TerminalSquare },
     { id: 'coding', label: 'Coding Space', icon: Code2 },
+    { id: 'agent', label: 'CrabAgent 🦀', icon: Bot },
     { id: 'notion', label: 'Notion (Stub)', icon: BookOpen },
 ];
 

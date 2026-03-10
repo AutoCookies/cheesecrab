@@ -4,6 +4,7 @@ import AIModels from './pages/AIModels';
 import Instances from './pages/Instances';
 import Logs from './pages/Logs';
 import CodingSpace from './spaces/coding/CodingSpace';
+import AgentSpace from './spaces/agent/AgentSpace';
 
 export default function App() {
   const [activeSpace, setActiveSpace] = useState('coding');
@@ -19,6 +20,7 @@ export default function App() {
       case 'instances': return <Instances />;
       case 'logs': return <Logs />;
       case 'coding': return <CodingSpace theme={theme} />;
+      case 'agent': return <AgentSpace />;
       case 'notion': return <div className="p-8"><h2 className="text-xl">Notion Space (Stub)</h2><p>Coming soon!</p></div>;
       default: return <AIModels />;
     }

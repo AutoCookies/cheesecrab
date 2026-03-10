@@ -3,10 +3,15 @@ module github.com/AutoCookies/cheesecrab-super/server
 go 1.25.3
 
 require (
+	github.com/AutoCookies/crabpath v0.0.0
 	github.com/gin-gonic/gin v1.12.0
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/shirou/gopsutil/v3 v3.24.5
 	go.uber.org/zap v1.27.1
 )
+
+replace github.com/AutoCookies/crabpath => ../third_party/crabpath
+
 
 require (
 	github.com/bytedance/gopkg v0.1.3 // indirect

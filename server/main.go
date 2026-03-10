@@ -30,6 +30,7 @@ func main() {
 	// Register the core spaces
 	registry.Register(spaces.NewAIModelsSpace(cfg, modelManager, runner))
 	registry.Register(spaces.NewOSSpace())
+	registry.Register(spaces.NewAgentSpace(cfg))
 	
 	// 5. Initialize API Server
 	server := api.NewServer(cfg, registry, runner)
