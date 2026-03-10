@@ -7,8 +7,8 @@ export default function Topbar({ theme, toggleTheme }) {
     const handleClose = () => window.electronAPI?.windowClose();
 
     return (
-        <div className="h-12 flex items-center justify-between drag-region bg-[var(--bg-secondary)] border-b border-[var(--border-color)] px-4">
-            <div className="flex items-center space-x-2 text-[var(--accent)] font-bold text-lg">
+        <div className="h-10 flex items-center justify-between drag-region bg-[var(--bg-secondary)] border-b border-[var(--border-color)] px-4">
+            <div className="flex items-center space-x-2 text-[var(--accent)] font-bold text-base">
                 <span>🦀 Cheesecrab Agent</span>
             </div>
 

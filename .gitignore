@@ -133,3 +133,6 @@ poetry.toml
 /.windsurf/
 # emscripten
 a.out.*
+*.log
+
+app/.cheesecrab-syntaxvoid

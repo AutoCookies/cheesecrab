@@ -20,6 +20,8 @@
     --border-color: #e5e7eb;
     --accent: #ef4444;
     --accent-hover: #dc2626;
+    --sidebar-width: 13rem;
+    --topbar-height: 2.5rem;
   }
 
   .dark {
@@ -31,6 +33,8 @@
     --border-color: #374151;
     --accent: #ef4444;
     --accent-hover: #f87171;
+    --sidebar-width: 13rem;
+    --topbar-height: 2.5rem;
   }
 }
 

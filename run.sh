@@ -36,4 +36,4 @@ sleep 2
 # Start the built Electron app natively
 echo "Starting Electron Dashboard (Native)..."
 cd app
-npm run start
+yarn start

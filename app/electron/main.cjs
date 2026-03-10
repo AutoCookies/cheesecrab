@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain } = require('electron');
+const { app, BrowserWindow, BrowserView, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
@@ -119,6 +119,55 @@ function createWindow() {
     if (!event.sender.isDestroyed()) event.sender.send(responseChannel, null);
   });
 
+  ipcMain.on('pick-folder', async (event, responseChannel) => {
+    try {
+      const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory', 'createDirectory', 'multiSelections']
+      });
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(responseChannel, canceled ? null : filePaths);
+      }
+    } catch (err) {
+      console.error('[Main] pick-folder error:', err);
+      if (!event.sender.isDestroyed()) {
+        event.sender.send(responseChannel, null);
+      }
+    }
+  });
+
+  ipcMain.on('open', async (event, params = {}) => {
+    // If pathsToOpen aren't provided, show dialog
+    let pathsToOpen = params.pathsToOpen;
+    if (!pathsToOpen || pathsToOpen.length === 0) {
+      try {
+        const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+          properties: ['openFile', 'openDirectory', 'createDirectory', 'multiSelections']
+        });
+        if (!canceled && filePaths.length > 0) {
+          pathsToOpen = filePaths;
+        } else {
+          return;
+        }
+      } catch (err) {
+        console.error('[Main] open error:', err);
+        return;
+      }
+    }
+
+    // Once paths are resolved, tell SyntaxVoid to open them via syntaxvoid-preload or atom instance
+    if (syntaxVoidView && pathsToOpen && pathsToOpen.length > 0) {
+      // In embedded mode, since we don't spawn new windows, we instruct the current Atom instance
+      // to open the provided paths. We can execute JS directly on the page since we own the BrowserView.
+      const jsonPaths = JSON.stringify(pathsToOpen);
+      const code = `if (typeof atom !== 'undefined' && atom.project) { atom.project.addPath(${jsonPaths}[0]); }`;
+      syntaxVoidView.webContents.executeJavaScript(code).catch(e => console.error('[Main] Failed to open path in Atom:', e));
+    }
+  });
+
+  ipcMain.handle('getScrollbarStyle', () => {
+    return 'legacy';
+  });
+
   // ── SyntaxVoid settings (used by syntaxvoid-preload.cjs) ─────────────────
   ipcMain.on('get-syntaxvoid-settings', (event) => {
     const resourcePath = path.join(APP_ROOT, 'src/spaces/coding/syntaxvoid');
@@ -220,29 +269,8 @@ function createWindow() {
         }
       });
 
-    // Theme injection
-    const cssVars = theme === 'dark'
-      ? `:root{--syntaxvoid-bg:#1e1e24;--syntaxvoid-text:#e2e8f0;--syntaxvoid-accent:#f87171;--syntaxvoid-border:#334155;}`
-      : `:root{--syntaxvoid-bg:#fff;--syntaxvoid-text:#0f172a;--syntaxvoid-accent:#ef4444;--syntaxvoid-border:#e2e8f0;}`;
-
     syntaxVoidView.webContents.on('dom-ready', () => {
-      console.log('[SyntaxVoid] DOM Ready, injecting CSS...');
-      syntaxVoidView.webContents.insertCSS(cssVars + `
-        html, body { background: var(--syntaxvoid-bg) !important; width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
-        body.is-blurred { filter: none !important; opacity: 1 !important; }
-        atom-workspace { 
-          background-color: var(--syntaxvoid-bg) !important; 
-          color: var(--syntaxvoid-text) !important; 
-          display: flex !important; 
-          width: 100% !important; 
-          height: 100% !important; 
-          visibility: visible !important; 
-          opacity: 1 !important; 
-        }
-        atom-panel-container{border-color:var(--syntaxvoid-border)!important;}
-        .tab-bar .tab.active{text-shadow:none;border-bottom:2px solid var(--syntaxvoid-accent)!important;color:var(--syntaxvoid-accent)!important;}
-        .tree-view{background:transparent!important;}
-      `);
+      console.log('[SyntaxVoid] DOM Ready, skipping external CSS injection to preserve isolated themes.');
     });
   });
 

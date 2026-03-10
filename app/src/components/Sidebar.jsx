@@ -7,7 +7,7 @@ const SPACES = [
     { id: 'ai_models', label: 'AI Models', icon: Database },
     { id: 'instances', label: 'Instances', icon: Cpu },
     { id: 'logs', label: 'Logs', icon: TerminalSquare },
-    { id: 'coding', label: 'Coding (Stub)', icon: Code2 },
+    { id: 'coding', label: 'Coding Space', icon: Code2 },
     { id: 'notion', label: 'Notion (Stub)', icon: BookOpen },
 ];
 
@@ -18,17 +18,17 @@ export default function Sidebar({ activeSpace, setActiveSpace }) {
         <div
             className={twMerge(
                 'h-full bg-[var(--bg-secondary)] border-r border-[var(--border-color)] flex flex-col transition-all duration-300 relative',
-                isCollapsed ? 'w-16' : 'w-64'
+                isCollapsed ? 'w-14' : 'w-52'
             )}
         >
             <button
                 onClick={() => setIsCollapsed(!isCollapsed)}
-                className="absolute -right-3 top-6 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-full p-1 text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors z-10"
+                className="absolute -right-3 top-4 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-full p-1 text-[var(--text-secondary)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors z-10"
             >
-                {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+                {isCollapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
             </button>
 
-            <div className="flex-1 overflow-y-auto py-6 flex flex-col gap-2 px-2">
+            <div className="flex-1 overflow-y-auto py-4 flex flex-col gap-1.5 px-2">
                 {SPACES.map((space) => {
                     const Icon = space.icon;
                     const isActive = activeSpace === space.id;
@@ -44,9 +44,9 @@ export default function Sidebar({ activeSpace, setActiveSpace }) {
                             )}
                             title={isCollapsed ? space.label : undefined}
                         >
-                            <Icon size={20} className={clsx(isActive ? 'text-white' : 'group-hover:text-[var(--accent)]', 'shrink-0')} />
+                            <Icon size={18} className={clsx(isActive ? 'text-white' : 'group-hover:text-[var(--accent)]', 'shrink-0')} />
                             {!isCollapsed && (
-                                <span className="font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                                <span className="font-medium whitespace-nowrap overflow-hidden text-ellipsis text-sm">
                                     {space.label}
                                 </span>
                             )}

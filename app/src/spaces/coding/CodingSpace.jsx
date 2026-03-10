@@ -34,16 +34,30 @@ export default function CodingSpace({ theme }) {
         console.log('[CodingSpace] Opening SyntaxVoid with bounds:', bounds);
         window.electronAPI.openSyntaxVoid(theme, bounds);
 
-        // Add resize listener
-        window.addEventListener('resize', updateBounds);
+        const observer = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                const screenRect = entry.target.getBoundingClientRect();
+                const newBounds = {
+                    x: Math.round(screenRect.left),
+                    y: Math.round(screenRect.top),
+                    width: Math.round(screenRect.width),
+                    height: Math.round(screenRect.height),
+                };
+                window.electronAPI.resizeSyntaxVoid(newBounds);
+            }
+        });
+
+        observer.observe(container);
 
         // Safety timeout to ensure we show the view if the ready signal is lost
         const fallback = setTimeout(() => setIsLoaded(true), 8000);
 
         return () => {
-            window.removeEventListener('resize', updateBounds);
+            observer.disconnect();
             clearTimeout(fallback);
-            window.electronAPI?.closeSyntaxVoid?.();
+            if (window.electronAPI?.closeSyntaxVoid) {
+                window.electronAPI.closeSyntaxVoid();
+            }
         };
     }, [theme]);
 
