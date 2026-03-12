@@ -48,11 +48,11 @@ func (m *Manager) ListLocal() ([]ModelInfo, error) {
 				return nil
 			}
 			
-			// Use the filename for simple UI representation, or path relative to models dir
-			relName, _ := filepath.Rel(m.config.ModelsDir, path)
+			// Align naming with C++ core: use filename without extension
+			name := strings.TrimSuffix(d.Name(), ".gguf")
 			
 			models = append(models, ModelInfo{
-				Name: relName, // Shows subdirectory/file.gguf if nested
+				Name: name, // Matches C++ core's model.name/id
 				Path: path,
 				Size: info.Size(),
 			})
@@ -65,6 +65,37 @@ func (m *Manager) ListLocal() ([]ModelInfo, error) {
 	}
 
 	return models, nil
+}
+
+// GetAgentModel returns the best available model for the agent.
+// It prioritizes models in the "agent/" subdirectory, then the root models/ dir.
+func (m *Manager) GetAgentModel() (string, error) {
+	// 1. Check models/agent/
+	agentDir := filepath.Join(m.config.ModelsDir, "agent")
+	if entries, err := os.ReadDir(agentDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".gguf") {
+				return filepath.Join("agent", e.Name()), nil
+			}
+		}
+	}
+
+	// 2. Fallback: check root models dir
+	entries, err := os.ReadDir(m.config.ModelsDir)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".gguf") {
+			// Skip vocab files
+			if strings.HasPrefix(e.Name(), "ggml-vocab-") {
+				continue
+			}
+			return e.Name(), nil
+		}
+	}
+
+	return "", fmt.Errorf("no models found in %s", m.config.ModelsDir)
 }
 
 // Pull downloads a model directly from a given URL to the models directory

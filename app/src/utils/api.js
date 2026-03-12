@@ -4,7 +4,7 @@ import axios from 'axios';
 const API_PORT = 11435;
 const api = axios.create({
     baseURL: `http://127.0.0.1:${API_PORT}/v1`,
-    timeout: 120000, // 120 seconds to allow huge models to load into VRAM
+    timeout: 120000,
 });
 
 export const fetchAIModels = async () => {
@@ -70,5 +70,31 @@ export const sendChatCompletion = async (model, messages) => {
         model,
         messages
     });
+    return res.data;
+};
+
+// Plugin Logic
+export const fetchAvailablePlugins = async () => {
+    const res = await api.get('/spaces/plugins/available');
+    return res.data.plugins || [];
+};
+
+export const fetchActivePlugins = async () => {
+    const res = await api.get('/spaces/plugins/active');
+    return res.data.active || [];
+};
+
+export const togglePlugin = async (id, enabled) => {
+    const res = await api.post('/spaces/plugins/toggle', { id, enabled });
+    return res.data;
+};
+
+export const installPlugin = async (id, repository) => {
+    const res = await api.post('/spaces/plugins/install', { id, repo: repository });
+    return res.data;
+};
+
+export const uninstallPlugin = async (id) => {
+    const res = await api.post('/spaces/plugins/uninstall', { id });
     return res.data;
 };

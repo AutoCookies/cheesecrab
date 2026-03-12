@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/AutoCookies/cheesecrab-super/server/config"
+	"github.com/AutoCookies/cheesecrab-super/server/models"
 	"github.com/AutoCookies/cheesecrab-super/server/utils"
 	crabagent "github.com/AutoCookies/crabpath/agent"
 	crabtools "github.com/AutoCookies/crabpath/tools"
@@ -19,11 +20,13 @@ import (
 // AgentSpace implements the Space interface and wires crabpath into the
 // Gin router under /v1/spaces/agent.
 type AgentSpace struct {
-	cfg *config.Config
+	cfg         *config.Config
+	manager     *models.Manager
+	pluginSpace *PluginSpace
 }
 
-func NewAgentSpace(cfg *config.Config) *AgentSpace {
-	return &AgentSpace{cfg: cfg}
+func NewAgentSpace(cfg *config.Config, manager *models.Manager, pluginSpace *PluginSpace) *AgentSpace {
+	return &AgentSpace{cfg: cfg, manager: manager, pluginSpace: pluginSpace}
 }
 
 func (s *AgentSpace) Name() string { return "agent" }
@@ -46,8 +49,14 @@ func (s *AgentSpace) handleRun(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Model == "" {
-		req.Model = "default"
+	if req.Model == "" || req.Model == "default" {
+		best, err := s.manager.GetAgentModel()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "No model specified and no valid models found in library. Please pull a model first."})
+			return
+		}
+		utils.Log.Infof("[AgentSpace] Auto-resolved 'default' model to: %s", best)
+		req.Model = best
 	}
 
 	llmAddr := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.LLMPort)
@@ -59,6 +68,12 @@ func (s *AgentSpace) handleRun(c *gin.Context) {
 	}
 
 	registry := crabtools.DefaultRegistry(fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port))
+	
+	// Inject plugin skills
+	for _, t := range s.pluginSpace.GetActiveTools() {
+		registry.Register(t)
+	}
+
 	agent := crabagent.NewCrabAgent(agentCfg, registry)
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
@@ -112,11 +127,20 @@ func (s *AgentSpace) handleRun(c *gin.Context) {
 // ─── GET /v1/spaces/agent/tools ───────────────────────────────────────────────
 
 func (s *AgentSpace) handleListTools(c *gin.Context) {
-	llmAddr := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.LLMPort)
-	registry := crabtools.DefaultRegistry(llmAddr)
+	registry := crabtools.DefaultRegistry(fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port))
 
 	var out []gin.H
 	for _, t := range registry.All() {
+		out = append(out, gin.H{
+			"name":        t.Name(),
+			"description": t.Description(),
+			"dangerous":   t.Dangerous(),
+			"schema":      t.Schema(),
+		})
+	}
+
+	// Include dynamic tools in listing
+	for _, t := range s.pluginSpace.GetActiveTools() {
 		out = append(out, gin.H{
 			"name":        t.Name(),
 			"description": t.Description(),

@@ -4,3 +4,9 @@
 [submodule "third_party/crabpath"]
 	path = third_party/crabpath
 	url = https://github.com/AutoCookies/crabpath.git
+[submodule "plugins/crabnote"]
+	path = plugins/crabnote
+	url = https://github.com/AutoCookies/crabnote.git
+[submodule "plugins/crabcalendar"]
+	path = plugins/crabcalendar
+	url = https://github.com/AutoCookies/crabcalendar.git

@@ -27,10 +27,16 @@ func main() {
 	// 4. Initialize Spaces Registry
 	registry := spaces.NewRegistry()
 	
+	pluginSpace := spaces.NewPluginSpace()
+
 	// Register the core spaces
 	registry.Register(spaces.NewAIModelsSpace(cfg, modelManager, runner))
 	registry.Register(spaces.NewOSSpace())
-	registry.Register(spaces.NewAgentSpace(cfg))
+	registry.Register(spaces.NewAgentSpace(cfg, modelManager, pluginSpace))
+	registry.Register(pluginSpace)
+	
+	// Initial Sync of plugins on disk
+	pluginSpace.Sync()
 	
 	// 5. Initialize API Server
 	server := api.NewServer(cfg, registry, runner)

@@ -389,7 +389,7 @@ common_presets common_preset_context::load_from_models_dir(const std::string & m
     }
 
     std::vector<local_model> models;
-    auto scan_subdir = [&models](const std::string & subdir_path, const std::string & name) {
+    auto scan_subdir = [&models](const std::string & subdir_path, const std::string & subdir_name) {
         auto files = fs_list(subdir_path, false);
         common_file_info model_file;
         common_file_info first_shard_file;
@@ -405,7 +405,14 @@ common_presets common_preset_context::load_from_models_dir(const std::string & m
                 }
             }
         }
-        // single file model
+
+        std::string name = subdir_name;
+        if (first_shard_file.path.empty() && !model_file.name.empty()) {
+            // Priority: use the filename (minus .gguf) for single-file models
+            name = model_file.name;
+            string_replace_all(name, ".gguf", "");
+        }
+
         local_model model{
             /* name        */ name,
             /* path        */ first_shard_file.path.empty() ? model_file.path : first_shard_file.path,

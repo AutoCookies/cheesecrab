@@ -32,7 +32,11 @@ func LoadConfig() *Config {
 	cheesecrabPath := os.Getenv("CHEESECRAB_PATH")
 	if cheesecrabPath == "" {
 		cwd, _ := os.Getwd()
+		// Try cwd/build/bin first, then ../build/bin (if started from server/)
 		cheesecrabPath = filepath.Join(cwd, "build", "bin", "cheese-server")
+		if _, err := os.Stat(cheesecrabPath); os.IsNotExist(err) {
+			cheesecrabPath = filepath.Join(filepath.Dir(cwd), "build", "bin", "cheese-server")
+		}
 	}
 
 	modelsDir := os.Getenv("MODELS_DIR")
