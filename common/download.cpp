@@ -296,6 +296,10 @@ static int common_download_file_single_online(const std::string        & url,
 
     auto [cli, parts] = common_http_client(url);
 
+    cli.set_connection_timeout(10, 0);
+    cli.set_read_timeout(10, 0);
+    cli.set_write_timeout(10, 0);
+
     httplib::Headers headers;
     for (const auto & h : custom_headers) {
         headers.emplace(h.first, h.second);
@@ -584,6 +588,7 @@ common_hf_file_res common_get_hf_file(const std::string & hf_repo_with_tag,
     // make the request
     common_remote_params params;
     params.headers = headers;
+    params.timeout = 10;
     long res_code = 0;
     std::string res_str;
     bool use_cache = false;
@@ -704,7 +709,24 @@ std::string common_docker_resolve_model(const std::string & docker) {
             return normalized;
         };
 
-        std::string token = common_docker_get_token(repo);  // Get authentication token
+        // Prepare local filename first before fetching token to allow for offline cache checks
+        std::string model_filename = repo;
+        std::replace(model_filename.begin(), model_filename.end(), '/', '_');
+        model_filename += "_" + tag + ".gguf";
+        std::string local_path = fs_get_cache_file(model_filename);
+
+        std::string token;
+        bool has_token = false;
+        try {
+            token = common_docker_get_token(repo);  // Get authentication token
+            has_token = true;
+        } catch (...) {
+            if (std::filesystem::exists(local_path)) {
+                LOG_INF("%s: using offline cached Docker Model: %s\n", __func__, local_path.c_str());
+                return local_path;
+            }
+            throw; // no cache and no token, re-throw
+        }
 
         // Get manifest
         // TODO: cache the manifest response so that it appears in the model list
@@ -717,6 +739,10 @@ std::string common_docker_resolve_model(const std::string & docker) {
         });
         auto manifest_res = common_remote_get_content(manifest_url, manifest_params);
         if (manifest_res.first != 200) {
+            if (std::filesystem::exists(local_path)) {
+                LOG_INF("%s: HTTP %d fetching manifest, using offline cached Docker Model: %s\n", __func__, (int)manifest_res.first, local_path.c_str());
+                return local_path;
+            }
             throw std::runtime_error("Failed to get Docker manifest, HTTP code: " + std::to_string(manifest_res.first));
         }
 
@@ -744,11 +770,11 @@ std::string common_docker_resolve_model(const std::string & docker) {
         gguf_digest = validate_oci_digest(gguf_digest);
         LOG_DBG("%s: Using validated digest: %s\n", __func__, gguf_digest.c_str());
 
-        // Prepare local filename
-        std::string model_filename = repo;
+        // Prepare local filename (already defined at top)
+        model_filename = repo;
         std::replace(model_filename.begin(), model_filename.end(), '/', '_');
         model_filename += "_" + tag + ".gguf";
-        std::string local_path = fs_get_cache_file(model_filename);
+        local_path = fs_get_cache_file(model_filename);
 
         const std::string blob_url = url_prefix + "/blobs/" + gguf_digest;
         const int http_status = common_download_file_single(blob_url, local_path, token, false, {});
@@ -784,7 +810,41 @@ std::vector<common_cached_model_info> common_list_cached_models() {
                 // invalid format
                 continue;
             }
-            model_info.size = 0; // TODO: get GGUF size, not manifest size
+            std::string content = read_file(file.path);
+            
+            bool model_file_exists = false;
+            try {
+                auto j = nlohmann::ordered_json::parse(content);
+                std::string expected_filename = "";
+                
+                if (j.contains("ggufFile") && j["ggufFile"].contains("rfilename")) {
+                    std::string ggufFile = j["ggufFile"]["rfilename"].get<std::string>();
+                    expected_filename = model_info.user + "_" + model_info.model + "_" + ggufFile;
+                } else {
+                    expected_filename = model_info.user + "_" + model_info.model + "_" + model_info.tag + ".gguf";
+                }
+                
+                string_replace_all(expected_filename, "/", "_");
+                std::string full_path = fs_get_cache_file(expected_filename);
+                
+                if (std::filesystem::exists(full_path)) {
+                    model_file_exists = true;
+                    try {
+                        model_info.size = static_cast<size_t>(std::filesystem::file_size(full_path));
+                    } catch (...) {
+                        model_info.size = 0;
+                    }
+                }
+            } catch (...) {
+                // If json parsing fails, ignore the manifest
+                continue;
+            }
+
+            if (!model_file_exists) {
+                continue; // Skip ghost manifests that have no backing .gguf file
+            }
+
+            model_info.is_docker = false; // Note: HF uses Docker manifest formats too, do not parse via application/vnd.docker
             models.push_back(model_info);
         }
     }

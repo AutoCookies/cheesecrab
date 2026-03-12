@@ -600,8 +600,13 @@ void server_models::load(const std::string & name) {
                         state_received = true;
                     }
                 }
+                if (!state_received) {
+                    SRV_ERR("child process for name=%s exited before ready\n", name.c_str());
+                    this->update_status(name, SERVER_MODEL_STATUS_UNLOADED, -1);
+                }
             } else {
                 SRV_ERR("failed to get stdout/stderr of child process for name=%s\n", name.c_str());
+                this->update_status(name, SERVER_MODEL_STATUS_UNLOADED, -1);
             }
         });
 

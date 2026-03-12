@@ -59,7 +59,6 @@
 # Deprecated
 
 /main
-/server
 
 # CI
 
@@ -81,11 +80,6 @@
 # Examples
 
 /examples/jeopardy/results.txt
-/tools/server/*.css.hpp
-/tools/server/*.html.hpp
-/tools/server/*.js.hpp
-/tools/server/*.mjs.hpp
-/tools/server/*.gz.hpp
 !/build_64.sh
 !/examples/*.bat
 !/examples/*/*.kts
@@ -139,3 +133,6 @@ poetry.toml
 /.windsurf/
 # emscripten
 a.out.*
+*.log
+
+app/.cheesecrab-syntaxvoid
