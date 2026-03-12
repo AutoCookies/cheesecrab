@@ -1,33 +1,26 @@
-.PHONY: all build-core build-go build-app run clean
+CHEESEBRAIN_DIR := cheesebrain
+CHEESEBRAIN_BUILD := $(CHEESEBRAIN_DIR)/build
+CHEESEBRAIN_BIN := $(CHEESEBRAIN_BUILD)/bin/cheese-server
+GO_BIN := cheesecrab
 
-# Default to building everything
-all: build-core build-go build-app
+.PHONY: all build run clean
 
-# Build the C++ core cheesecrab-server
-build-core:
-	@echo "Building cheesecrab core (C++)..."
-	mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && cmake --build . --config Release -j 4
-	@echo "Core build complete. Binaries are in build/bin/"
+all: build
 
-# Build the Go agent server
-build-go:
-	@echo "Building Go agent server..."
-	cd server && go mod tidy && go build -o ../build/bin/cheesecrab-agent main.go
-	@echo "Go build complete. Binary is in build/bin/cheesecrab-agent"
+# Build both the cheesebrain C++ server and the Go daemon.
+build: $(CHEESEBRAIN_BIN) $(GO_BIN)
 
-# Build the Electron React app (uses yarn to match run.sh which runs yarn start)
-build-app:
-	@echo "Building Electron App..."
-	cd app && yarn install && yarn build
-	@echo "App build complete. Output in app/dist. Run ./run.sh or 'cd app && yarn start'."
+$(CHEESEBRAIN_BIN):
+	cmake -S $(CHEESEBRAIN_DIR) -B $(CHEESEBRAIN_BUILD)
+	cmake --build $(CHEESEBRAIN_BUILD) --config Release
 
-# Run the Go agent (assuming the core is already built)
-run:
-	@echo "Running cheesecrab-agent..."
-	./build/bin/cheesecrab-agent
+$(GO_BIN):
+	GO111MODULE=on go build -o $(GO_BIN) ./cmd/cheesecrab
 
-# Clean builds
+# Build everything and run the daemon.
+run: build
+	./$(GO_BIN)
+
 clean:
-	rm -rf build/
-	rm -f server/cheesecrab-agent
-	rm -rf app/dist/
+	rm -rf $(CHEESEBRAIN_BUILD) $(GO_BIN)
+
