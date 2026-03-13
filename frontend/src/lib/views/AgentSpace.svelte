@@ -354,12 +354,12 @@
           <p class="history-empty">No completed runs yet.</p>
         {:else}
           {#each [...history].reverse() as run}
-            <div class="history-item" onclick={() => { goal = run.goal; showHistory = false; }}>
+            <button class="history-item" onclick={() => { goal = run.goal; showHistory = false; }}>
               <span class="history-status" class:done={run.status === 'completed'} class:fail={run.status !== 'completed'}>
                 {run.status === 'completed' ? '✓' : '✗'}
               </span>
               <span class="history-goal">{run.goal}</span>
-            </div>
+            </button>
           {/each}
         {/if}
       </aside>

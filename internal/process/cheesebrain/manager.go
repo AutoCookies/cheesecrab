@@ -33,27 +33,34 @@ type EngineEvent struct {
 
 // Manager owns the lifecycle of the cheesebrain C++ server process.
 type Manager struct {
-	cfg *config.Config
-	log *log.Logger
+	cfg     *config.Config
+	log     *log.Logger
+	rootCtx context.Context // process lifetime is bound to this context
 
-	mu  sync.RWMutex
-	cmd *exec.Cmd
-	url string
+	mu          sync.RWMutex
+	cmd         *exec.Cmd
+	url         string
+	activeModel string // full path of the currently-loaded model
 
 	events chan EngineEvent
 }
 
 // NewManager constructs a new Manager.
-func NewManager(cfg *config.Config, logger *log.Logger) *Manager {
+// rootCtx controls the lifetime of the cheesebrain OS process; it should be
+// the application-level context (cancelled only on server shutdown).
+func NewManager(rootCtx context.Context, cfg *config.Config, logger *log.Logger) *Manager {
 	return &Manager{
-		cfg:    cfg,
-		log:    logger,
-		events: make(chan EngineEvent, 64),
+		cfg:     cfg,
+		log:     logger,
+		rootCtx: rootCtx,
+		events:  make(chan EngineEvent, 64),
 	}
 }
 
 // Start launches the cheesebrain process on a dynamically allocated local port.
-func (m *Manager) Start(ctx context.Context) error {
+// ctx is unused for the process lifetime (that is governed by rootCtx);
+// it is kept for API compatibility.
+func (m *Manager) Start(_ context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -88,7 +95,9 @@ func (m *Manager) Start(ctx context.Context) error {
 		args = append(args, "--models-dir", m.cfg.ModelsDir)
 	}
 
-	cmd := exec.CommandContext(ctx, bin, args...)
+	// Use rootCtx so the process lives for the full application lifetime,
+	// NOT for the duration of a single HTTP request.
+	cmd := exec.CommandContext(m.rootCtx, bin, args...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -106,6 +115,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.log.Printf("started cheesebrain pid=%d on %s", cmd.Process.Pid, baseURL)
 	m.cmd = cmd
 	m.url = baseURL
+	m.activeModel = m.cfg.ModelPath
 
 	// Emit an initial starting event.
 	m.emitEvent(EngineEvent{
@@ -120,13 +130,24 @@ func (m *Manager) Start(ctx context.Context) error {
 	go m.streamOutput("stderr", stderr)
 
 	go func() {
-		if err := cmd.Wait(); err != nil {
-			m.log.Printf("cheesebrain exited with error: %v", err)
+		waitErr := cmd.Wait()
+
+		// Clear runtime state so IsRunning() / URL() reflect reality.
+		m.mu.Lock()
+		if m.cmd == cmd { // only clear if this is still the active cmd
+			m.cmd = nil
+			m.url = ""
+			m.activeModel = ""
+		}
+		m.mu.Unlock()
+
+		if waitErr != nil {
+			m.log.Printf("cheesebrain exited with error: %v", waitErr)
 			m.emitEvent(EngineEvent{
 				Time:    time.Now(),
 				State:   "crashed",
 				Model:   m.cfg.ModelPath,
-				Message: err.Error(),
+				Message: waitErr.Error(),
 			})
 		} else {
 			m.log.Printf("cheesebrain exited")
@@ -142,11 +163,54 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// URL returns the base URL of the cheesebrain HTTP API.
+// URL returns the base URL of the cheesebrain HTTP API, or "" if not running.
 func (m *Manager) URL() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.url
+}
+
+// IsRunning reports whether the cheesebrain process is currently alive.
+func (m *Manager) IsRunning() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cmd != nil && m.cmd.Process != nil
+}
+
+// ActiveModel returns the full path of the model currently loaded in cheesebrain.
+func (m *Manager) ActiveModel() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.activeModel
+}
+
+// SwitchModel stops the running cheesebrain (if any), starts a new instance
+// with modelPath, and blocks until the new instance is ready.
+func (m *Manager) SwitchModel(ctx context.Context, modelPath string) error {
+	// Stop existing instance if running.
+	stopCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := m.Stop(stopCtx); err != nil {
+		m.log.Printf("warning: stopping cheesebrain before model switch: %v", err)
+	}
+
+	m.mu.Lock()
+	m.cfg.ModelPath = modelPath
+	m.mu.Unlock()
+
+	if err := m.Start(ctx); err != nil {
+		return fmt.Errorf("start cheesebrain with model %q: %w", modelPath, err)
+	}
+
+	if err := m.WaitReady(ctx); err != nil {
+		return fmt.Errorf("cheesebrain not ready: %w", err)
+	}
+
+	m.mu.Lock()
+	m.activeModel = modelPath
+	m.mu.Unlock()
+
+	return nil
 }
 
 // Events exposes a read-only stream of EngineEvent updates for telemetry.
@@ -267,6 +331,7 @@ func (m *Manager) ListModels(ctx context.Context) ([]map[string]interface{}, err
 
 // Stop attempts graceful shutdown of the cheesebrain process followed by a
 // forced kill if it does not exit before the context deadline.
+// After Stop returns, Start may be called again.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -285,15 +350,21 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.log.Printf("failed to send SIGINT to cheesebrain: %v", err)
 	}
 
+	var stopErr error
 	select {
 	case <-done:
-		return nil
 	case <-ctx.Done():
 		m.log.Printf("force-killing cheesebrain")
 		_ = m.cmd.Process.Kill()
 		<-done
-		return ctx.Err()
+		stopErr = ctx.Err()
 	}
+
+	// Reset so Start() can be called again.
+	m.cmd = nil
+	m.url = ""
+	m.activeModel = ""
+	return stopErr
 }
 
 func (m *Manager) emitEvent(ev EngineEvent) {

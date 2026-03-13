@@ -1,14 +1,13 @@
 <script>
-  import { 
-    MessageSquare, 
-    ShoppingBag, 
-    Settings, 
-    Puzzle, 
-    Sun, 
-    Moon, 
-    Terminal,
+  import {
+    MessageSquare,
+    Settings,
+    Puzzle,
+    Sun,
+    Moon,
     Cpu,
-    BrainCircuit
+    BrainCircuit,
+    Database,
   } from 'lucide-svelte';
 
   let { 
@@ -19,10 +18,11 @@
   } = $props();
 
   const navItems = [
-    { id: 'chat', icon: MessageSquare, label: 'AI Space' },
-    { id: 'agent', icon: BrainCircuit, label: 'Agent Engine' },
-    { id: 'marketplace', icon: ShoppingBag, label: 'Plugin Store' },
-    { id: 'settings', icon: Settings, label: 'Settings' }
+    { id: 'chat',      icon: MessageSquare, label: 'AI Space'      },
+    { id: 'agent',     icon: BrainCircuit,  label: 'Agent Engine'  },
+    { id: 'models',    icon: Database,      label: 'Models'        },
+    { id: 'plugins',   icon: Puzzle,        label: 'Plugins'       },
+    { id: 'settings',  icon: Settings,      label: 'Settings'      },
   ];
 </script>
 

@@ -35,7 +35,7 @@ func NewApp() *App {
 	
 	return &App{
 		pluginManager: plugin.NewManager(pluginDir),
-		manager:       cbproc.NewManager(cfg, logger),
+		manager:       cbproc.NewManager(context.Background(), cfg, logger),
 	}
 }
 

@@ -4,10 +4,11 @@
   import { onMount } from 'svelte';
   
   // Views
-  import ChatSpace from './lib/views/ChatSpace.svelte';
-  import AgentSpace from './lib/views/AgentSpace.svelte';
-  import Marketplace from './lib/views/Marketplace.svelte';
-  import PluginHost from './lib/components/workspace/PluginHost.svelte';
+  import ChatSpace   from './lib/views/ChatSpace.svelte';
+  import AgentSpace  from './lib/views/AgentSpace.svelte';
+  import ModelsView  from './lib/views/ModelsView.svelte';
+  import PluginsView from './lib/views/PluginsView.svelte';
+  import PluginHost  from './lib/components/workspace/PluginHost.svelte';
 
   let activeView = $state('chat');
   let installedPlugins = $state([]);
@@ -49,10 +50,11 @@
             <ChatSpace />
           {:else if activeView === 'agent'}
             <AgentSpace />
-          {:else if activeView === 'marketplace'}
-            <Marketplace onPluginInstalled={() => {
-              // Refresh plugins list
-              window.go.main.App.GetInstalledPlugins().then(p => installedPlugins = p || []);
+          {:else if activeView === 'models'}
+            <ModelsView />
+          {:else if activeView === 'plugins'}
+            <PluginsView onPluginInstalled={() => {
+              window.go?.main?.App?.GetInstalledPlugins().then(p => { installedPlugins = p || []; });
             }} />
           {:else if activePlugin}
             <PluginHost manifest={activePlugin} />
