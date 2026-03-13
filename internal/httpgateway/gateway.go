@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/AutoCookies/cheesecrab/internal/agent"
 	"github.com/AutoCookies/cheesecrab/internal/config"
@@ -41,7 +44,8 @@ func New(cfg *config.Config, mgr *cbproc.Manager, tel *telemetry.Service, logger
 	}
 }
 
-// Router returns an http.Handler that serves the Cheesecrab public API.
+// Router returns an http.Handler that serves the Cheesecrab public API
+// and optionally the web UI from cfg.WebRoot (SPA fallback to index.html).
 func (g *Gateway) Router() http.Handler {
 	mux := http.NewServeMux()
 
@@ -49,12 +53,63 @@ func (g *Gateway) Router() http.Handler {
 	mux.HandleFunc("/ws/system-status", g.handleSystemStatusWS)
 	mux.HandleFunc("/v1/chat/completions", g.handleChatCompletions)
 
-	// Fallback: proxy any other paths directly to cheesebrain.
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		g.proxy.ServeHTTP(w, r)
-	})
+	// Agent endpoints
+	mux.HandleFunc("/v1/agent/run", g.agentSvc.HandleAgentRun)
+	mux.HandleFunc("/v1/agent/approve", g.agentSvc.HandleAgentApprove)
+	mux.HandleFunc("/v1/agent/paths", g.agentSvc.HandleAgentPaths)
 
+	// Fallback: serve web UI from WebRoot if present, else proxy to cheesebrain.
+	mux.HandleFunc("/", g.handleFallback)
 	return mux
+}
+
+// handleFallback serves static web UI from WebRoot (with SPA fallback) when
+// WebRoot is set and the directory exists; otherwise proxies to cheesebrain.
+func (g *Gateway) handleFallback(w http.ResponseWriter, r *http.Request) {
+	root := g.cfg.WebRoot
+	if root == "" {
+		g.proxy.ServeHTTP(w, r)
+		return
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		g.proxy.ServeHTTP(w, r)
+		return
+	}
+
+	path := r.URL.Path
+	if path == "/" {
+		path = "/index.html"
+	}
+	filePath := filepath.Join(root, filepath.Clean(path))
+	if !filepath.HasPrefix(filePath, filepath.Clean(root)) {
+		http.NotFound(w, r)
+		return
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		// SPA fallback: serve index.html for any non-file path
+		indexPath := filepath.Join(root, "index.html")
+		indexFile, err := os.Open(indexPath)
+		if err != nil {
+			g.proxy.ServeHTTP(w, r)
+			return
+		}
+		defer indexFile.Close()
+		modTime := time.Time{}
+		if indexInfo, err := indexFile.Stat(); err == nil {
+			modTime = indexInfo.ModTime()
+		}
+		http.ServeContent(w, r, "index.html", modTime, indexFile)
+		return
+	}
+	defer f.Close()
+	info, _ = f.Stat()
+	if info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeContent(w, r, filepath.Base(filePath), info.ModTime(), f)
 }
 
 func (g *Gateway) handleHealth(w http.ResponseWriter, _ *http.Request) {

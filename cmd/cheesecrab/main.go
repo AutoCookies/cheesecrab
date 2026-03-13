@@ -43,6 +43,11 @@ func main() {
 
 	go func() {
 		logger.Printf("HTTP server listening on %s", cfg.ListenAddr)
+		if cfg.WebRoot != "" {
+			if _, err := os.Stat(cfg.WebRoot); err == nil {
+				logger.Printf("Web UI enabled: open http://%s in a browser", cfg.ListenAddr)
+			}
+		}
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatalf("http server failed: %v", err)
 		}

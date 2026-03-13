@@ -2,7 +2,9 @@ package cheesebrain
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -74,15 +76,16 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	// Cheesebrain requires a model path; we surface a clear error if it is
-	// not configured rather than attempting to guess.
-	if m.cfg.ModelPath == "" {
-		return errors.New("CHEESEBRAIN_MODEL not set; please set it to a GGUF model path")
+	args := []string{
+		"--port", fmt.Sprint(port),
 	}
 
-	args := []string{
-		"-m", m.cfg.ModelPath,
-		"--port", fmt.Sprint(port),
+	if m.cfg.ModelPath != "" {
+		args = append(args, "-m", m.cfg.ModelPath)
+	} else if m.cfg.ModelsDir != "" {
+		// Ensure models directory exists
+		_ = os.MkdirAll(m.cfg.ModelsDir, 0755)
+		args = append(args, "--models-dir", m.cfg.ModelsDir)
 	}
 
 	cmd := exec.CommandContext(ctx, bin, args...)
@@ -183,9 +186,83 @@ func (m *Manager) WaitReady(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(1 * time.Second):
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
+}
+
+// LoadModel tells the cheesebrain server to load a model.
+func (m *Manager) LoadModel(ctx context.Context, name string) error {
+	m.mu.RLock()
+	url := m.url
+	m.mu.RUnlock()
+
+	if url == "" {
+		return errors.New("cheesebrain not started")
+	}
+
+	payload, _ := json.Marshal(map[string]string{"model": name})
+	req, err := http.NewRequestWithContext(ctx, "POST", url+"/models/load", bytes.NewBuffer(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&errResp)
+		if errResp.Error.Message != "" {
+			return errors.New(errResp.Error.Message)
+		}
+		return fmt.Errorf("load model failed: status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// ListModels returns a list of models known to the server.
+func (m *Manager) ListModels(ctx context.Context) ([]map[string]interface{}, error) {
+	m.mu.RLock()
+	url := m.url
+	m.mu.RUnlock()
+
+	if url == "" {
+		return nil, errors.New("cheesebrain not started")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url+"/api/models", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list models failed: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Data, nil
 }
 
 // Stop attempts graceful shutdown of the cheesebrain process followed by a
