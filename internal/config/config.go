@@ -23,6 +23,10 @@ type Config struct {
 
 	// ModelsDir is the directory where GGUF models are stored for the router.
 	ModelsDir string
+
+	// CrabtableRoot is the directory from which to serve Crab Table (Luckysheet) assets (e.g. "crabtable/dist").
+	// If empty or the directory does not exist, the Crab Table view falls back to CDN.
+	CrabtableRoot string
 }
 
 // Load constructs a Config using sensible defaults, overridable via env vars.
@@ -61,12 +65,21 @@ func Load() *Config {
 	home, _ := os.UserHomeDir()
 	modelsDir := getEnvDefault("CHEESEBRAIN_MODELS_DIR", filepath.Join(home, ".cheesecrab", "models"))
 
+	crabtableRoot := getEnvDefault("CHEESECRAB_CRABTABLE_ROOT", "crabtable/dist")
+	if crabtableRoot != "" && !filepath.IsAbs(crabtableRoot) {
+		cwd, err := os.Getwd()
+		if err == nil {
+			crabtableRoot = filepath.Join(cwd, crabtableRoot)
+		}
+	}
+
 	return &Config{
 		ListenAddr:     listen,
 		WebRoot:        webRoot,
 		CheesebrainBin: bin,
 		ModelPath:      model,
 		ModelsDir:      modelsDir,
+		CrabtableRoot:  crabtableRoot,
 	}
 }
 

@@ -99,6 +99,13 @@ func (g *Gateway) Router() http.Handler {
 	// Model load — starts/restarts cheesebrain with the chosen model
 	mux.HandleFunc("/models/load", g.handleLoadModel)
 
+	// Crab Table (Luckysheet) assets from local crabtable/dist when present
+	if g.cfg.CrabtableRoot != "" {
+		if info, err := os.Stat(g.cfg.CrabtableRoot); err == nil && info.IsDir() {
+			mux.Handle("/crabtable/", http.StripPrefix("/crabtable", http.FileServer(http.Dir(g.cfg.CrabtableRoot))))
+		}
+	}
+
 	// Fallback: serve web UI from WebRoot if present, else proxy to cheesebrain.
 	mux.HandleFunc("/", g.handleFallback)
 	return mux

@@ -8,6 +8,7 @@
     Cpu,
     BrainCircuit,
     Database,
+    Table,
   } from 'lucide-svelte';
 
   let { 
@@ -22,6 +23,7 @@
     { id: 'agent',     icon: BrainCircuit,  label: 'Agent Engine'  },
     { id: 'models',    icon: Database,      label: 'Models'        },
     { id: 'plugins',   icon: Puzzle,        label: 'Plugins'       },
+    { id: 'crabtable', icon: Table,         label: 'Crab Table'    },
     { id: 'settings',  icon: Settings,      label: 'Settings'      },
   ];
 </script>

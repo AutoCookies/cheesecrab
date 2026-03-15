@@ -8,6 +8,7 @@
   import AgentSpace  from './lib/views/AgentSpace.svelte';
   import ModelsView  from './lib/views/ModelsView.svelte';
   import PluginsView from './lib/views/PluginsView.svelte';
+  import CrabTableView from './lib/views/CrabTableView.svelte';
   import PluginHost  from './lib/components/workspace/PluginHost.svelte';
 
   let activeView = $state('chat');
@@ -56,6 +57,8 @@
             <PluginsView onPluginInstalled={() => {
               window.go?.main?.App?.GetInstalledPlugins().then(p => { installedPlugins = p || []; });
             }} />
+          {:else if activeView === 'crabtable'}
+            <CrabTableView />
           {:else if activePlugin}
             <PluginHost manifest={activePlugin} />
           {:else}

@@ -5,7 +5,7 @@ UI_BIN           := cheesecrab
 DAEMON_BIN       := cheesecrab-daemon
 SERVER_BIN       := cheesecrab-server
 
-.PHONY: all build build-server frontend run run-server clean
+.PHONY: all build build-server frontend run run-server start clean
 
 all: build
 
@@ -48,6 +48,10 @@ run: build
 # Run the self-contained server (dev mode: serves frontend/dist from disk)
 run-server:
 	GO111MODULE=on go run ./cmd/cheesecrab
+
+# Build then run the server binary (production)
+start: build-server
+	./$(SERVER_BIN)
 
 clean:
 	rm -rf $(CHEESEBRAIN_BUILD) $(UI_BIN) $(DAEMON_BIN) $(SERVER_BIN)
