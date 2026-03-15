@@ -48,6 +48,48 @@
             }
           ]
         });
+
+        // Bridge for Agent interaction
+        window.addEventListener('crabtable-external-req', (e) => {
+          const { tc, sessionId } = e.detail;
+          const { action, range, values, description } = tc.args;
+          
+          let result = "";
+          try {
+            switch (action) {
+              case 'get_data':
+                result = JSON.stringify(window.luckysheet.getluckysheetfile());
+                break;
+              case 'set_data':
+                window.luckysheet.setRangeValue(values, { range: range });
+                result = "OK: Applied data to " + (range || "active range");
+                break;
+              case 'clear':
+                window.luckysheet.setRangeValue([], { range: "A1:Z100" }); // Simple clear
+                result = "OK: Cleared sheet";
+                break;
+              case 'create_table':
+                // Basic implementation of drawing a table
+                if (values && values.length > 0) {
+                  window.luckysheet.setRangeValue(values, { range: range || "A1" });
+                  result = "OK: Created table: " + (description || "untitled");
+                } else {
+                  result = "Error: Missing values for create_table";
+                }
+                break;
+              default:
+                result = "Error: Unknown action " + action;
+            }
+          } catch (err) {
+            result = "Error: " + err.message;
+          }
+
+          // Return result back to AgentSpace
+          window.dispatchEvent(new CustomEvent('crabtable-external-res', {
+            detail: { sessionId, result }
+          }));
+        });
+
       } catch (err) {
         console.error("Failed to load Luckysheet:", err);
       }

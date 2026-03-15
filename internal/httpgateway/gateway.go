@@ -63,7 +63,7 @@ func New(cfg *config.Config, mgr *cbproc.Manager, tel *telemetry.Service, logger
 		},
 	}
 
-	agentSvc := agent.NewService(cfg, mgr.URL(), logger)
+	agentSvc := agent.NewService(cfg, mgr, logger)
 
 	return &Gateway{
 		cfg:       cfg,
@@ -89,6 +89,7 @@ func (g *Gateway) Router() http.Handler {
 	mux.HandleFunc("/v1/agent/run", g.agentSvc.HandleAgentRun)
 	mux.HandleFunc("/v1/agent/approve", g.agentSvc.HandleAgentApprove)
 	mux.HandleFunc("/v1/agent/paths", g.agentSvc.HandleAgentPaths)
+	mux.HandleFunc("/v1/agent/crabtable/response", g.agentSvc.HandleAgentCrabTableResponse)
 
 	// Model pull — intercepts URL-based downloads before proxying to cheesebrain
 	mux.HandleFunc("/api/pull", g.handleModelPull)

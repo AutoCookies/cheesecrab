@@ -59,11 +59,11 @@ export function chatCompletion(request, { onToken, onError, onDone }) {
 				window.runtime.EventsOff('chat:token');
 				window.runtime.EventsOff('chat:error');
 				window.runtime.EventsOff('chat:done');
-			} catch (_) {}
+			} catch (_) { }
 		};
-		window.runtime.EventsOn('chat:token', (chunk) => { try { onToken(chunk); } catch (_) {} });
-		window.runtime.EventsOn('chat:error', (err) => { cleanup(); try { onError(String(err)); } catch (_) {} });
-		window.runtime.EventsOn('chat:done', () => { cleanup(); try { onDone(); } catch (_) {} });
+		window.runtime.EventsOn('chat:token', (chunk) => { try { onToken(chunk); } catch (_) { } });
+		window.runtime.EventsOn('chat:error', (err) => { cleanup(); try { onError(String(err)); } catch (_) { } });
+		window.runtime.EventsOn('chat:done', () => { cleanup(); try { onDone(); } catch (_) { } });
 		app.ChatCompletion({ ...request, stream: true });
 		return;
 	}
@@ -102,7 +102,7 @@ export function chatCompletion(request, { onToken, onError, onDone }) {
 							try {
 								const chunk = JSON.parse(data);
 								onToken(chunk);
-							} catch (_) {}
+							} catch (_) { }
 						}
 					}
 					return pump();
@@ -122,8 +122,8 @@ export function chatCompletion(request, { onToken, onError, onDone }) {
 export function pullModel(name, { onProgress, onError }) {
 	const app = getApp();
 	if (app && app.PullModel && window.runtime) {
-		window.runtime.EventsOn('pull:progress', (data) => { try { onProgress(data); } catch (_) {} });
-		window.runtime.EventsOn('pull:error', (err) => { try { onError(String(err)); } catch (_) {} });
+		window.runtime.EventsOn('pull:progress', (data) => { try { onProgress(data); } catch (_) { } });
+		window.runtime.EventsOn('pull:error', (err) => { try { onError(String(err)); } catch (_) { } });
 		app.PullModel(name);
 		return;
 	}
@@ -147,7 +147,7 @@ export function pullModel(name, { onProgress, onError }) {
 						if (line.trim()) {
 							try {
 								onProgress(JSON.parse(line));
-							} catch (_) {}
+							} catch (_) { }
 						}
 					}
 					return pump();
@@ -201,7 +201,7 @@ export function agentRun(request, { onEvent, onError, onDone }) {
 							try {
 								const ev = JSON.parse(data);
 								onEvent(ev);
-							} catch (_) {}
+							} catch (_) { }
 						}
 					}
 					return pump();
@@ -233,6 +233,24 @@ export async function agentApprove(sessionId, approved) {
 	if (!res.ok) {
 		const t = await res.text();
 		throw new Error(t || `agentApprove: HTTP ${res.status}`);
+	}
+}
+
+/**
+ * Send the result of a crabtable tool call back to the agent session.
+ * @param {string} sessionId
+ * @param {string} result
+ * @returns {Promise<void>}
+ */
+export async function agentCrabTableResponse(sessionId, result) {
+	const res = await fetch('/v1/agent/crabtable/response', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ session_id: sessionId, result }),
+	});
+	if (!res.ok) {
+		const t = await res.text();
+		throw new Error(t || `agentCrabTableResponse: HTTP ${res.status}`);
 	}
 }
 

@@ -45,30 +45,29 @@
   
   <div class="content-wrapper">
     <div class="main-content">
-      {#key activeView}
-        <div class="animate-fade h-full">
-          {#if activeView === 'chat'}
-            <ChatSpace />
-          {:else if activeView === 'agent'}
-            <AgentSpace />
-          {:else if activeView === 'models'}
-            <ModelsView />
-          {:else if activeView === 'plugins'}
-            <PluginsView onPluginInstalled={() => {
-              window.go?.main?.App?.GetInstalledPlugins().then(p => { installedPlugins = p || []; });
-            }} />
-          {:else if activeView === 'crabtable'}
-            <CrabTableView />
-          {:else if activePlugin}
-            <PluginHost manifest={activePlugin} />
-          {:else}
-            <div class="placeholder">
-              <h1 class="brand-font">{activeView}</h1>
-              <p>This module is under development.</p>
-            </div>
-          {/if}
+      <div class="view-wrapper" class:active={activeView === 'chat'}>
+        <ChatSpace />
+      </div>
+      <div class="view-wrapper" class:active={activeView === 'agent'}>
+        <AgentSpace />
+      </div>
+      <div class="view-wrapper" class:active={activeView === 'models'}>
+        <ModelsView />
+      </div>
+      <div class="view-wrapper" class:active={activeView === 'plugins'}>
+        <PluginsView onPluginInstalled={() => {
+          window.go?.main?.App?.GetInstalledPlugins().then(p => { installedPlugins = p || []; });
+        }} />
+      </div>
+      <div class="view-wrapper" class:active={activeView === 'crabtable'}>
+        <CrabTableView />
+      </div>
+      
+      {#if activePlugin}
+        <div class="view-wrapper active">
+          <PluginHost manifest={activePlugin} />
         </div>
-      {/key}
+      {/if}
     </div>
     
     <TelemetryBar />
@@ -98,6 +97,15 @@
     overflow-y: auto;
     position: relative;
     padding: 1rem;
+  }
+
+  .view-wrapper {
+    display: none;
+    height: 100%;
+  }
+
+  .view-wrapper.active {
+    display: block;
   }
 
   .h-full {

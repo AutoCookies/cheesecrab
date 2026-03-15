@@ -20,6 +20,7 @@ import (
 
 	"github.com/AutoCookies/cheesecrab/internal/config"
 	"github.com/AutoCookies/cheesecrab/internal/llmclient"
+	cbproc "github.com/AutoCookies/cheesecrab/internal/process/cheesebrain"
 )
 
 // ChatRequest mirrors the OpenAI chat completions request shape.
@@ -49,16 +50,17 @@ type AgentApproveRequest struct {
 
 // runState tracks an in-flight agent run.
 type runState struct {
-	path      *agent.CrabPath
-	approveCh chan bool
-	startedAt time.Time
+	path          *agent.CrabPath
+	approveCh     chan bool
+	crabTableResCh chan string
+	startedAt     time.Time
 }
 
 // Service coordinates agentic request handling and session lifecycle.
 type Service struct {
 	log      *log.Logger
 	llmProxy llmclient.Client
-	llmAddr  string
+	mgr      *cbproc.Manager
 	cfg      *config.Config
 
 	mu       sync.RWMutex
@@ -67,11 +69,11 @@ type Service struct {
 }
 
 // NewService constructs a Service backed by the cheesebrain LLM client.
-func NewService(cfg *config.Config, cheesebrainBaseURL string, logger *log.Logger) *Service {
+func NewService(cfg *config.Config, mgr *cbproc.Manager, logger *log.Logger) *Service {
 	return &Service{
 		log:      logger,
-		llmProxy: llmclient.NewHTTPClient(cheesebrainBaseURL),
-		llmAddr:  cheesebrainBaseURL,
+		llmProxy: llmclient.NewHTTPClient(mgr.URL()),
+		mgr:      mgr,
 		cfg:      cfg,
 		sessions: make(map[string]*runState),
 	}
@@ -100,12 +102,36 @@ func (t *approvalGatedTool) Execute(ctx context.Context, args map[string]any) (s
 	return t.CrabTool.Execute(ctx, args)
 }
 
+// crabTableGatedTool waits for a response from the frontend.
+type crabTableGatedTool struct {
+	tools.CrabTool
+	resCh chan string
+}
+
+func (t *crabTableGatedTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	// The executor already emitted the EventCrabTableReq.
+	// We just wait for the response from the frontend.
+	select {
+	case res, ok := <-t.resCh:
+		if !ok {
+			return "", fmt.Errorf("crabtable tool response channel closed")
+		}
+		return res, nil
+	case <-ctx.Done():
+		return "", fmt.Errorf("crabtable tool wait cancelled: %w", ctx.Err())
+	}
+}
+
 // gatedRegistry builds a fresh registry with all dangerous tools wrapped in
-// an approval gate that blocks until the user signals via approveCh.
-func gatedRegistry(baseAddr string, approveCh chan bool) *tools.Registry {
+// an approval gate, and the crabtable tool wrapped in a response gate.
+func gatedRegistry(baseAddr string, approveCh chan bool, crabTableResCh chan string) *tools.Registry {
 	base := tools.DefaultRegistry(baseAddr)
 	r := tools.NewRegistry()
 	for _, t := range base.All() {
+		if t.Name() == "crabtable" {
+			r.Register(&crabTableGatedTool{CrabTool: t, resCh: crabTableResCh})
+			continue
+		}
 		if t.Dangerous() {
 			r.Register(&approvalGatedTool{CrabTool: t, approveCh: approveCh})
 		} else {
@@ -197,6 +223,43 @@ func (s *Service) HandleAgentApprove(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// HandleAgentCrabTableResponse handles POST /v1/agent/crabtable/response.
+func (s *Service) HandleAgentCrabTableResponse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SessionID string `json:"session_id"`
+		Result    string `json:"result"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.SessionID == "" {
+		http.Error(w, `{"error":"session_id required"}`, http.StatusBadRequest)
+		return
+	}
+
+	s.mu.RLock()
+	state, ok := s.sessions[req.SessionID]
+	s.mu.RUnlock()
+
+	if !ok {
+		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+		return
+	}
+
+	select {
+	case state.crabTableResCh <- req.Result:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	default:
+		http.Error(w, `{"error":"no crabtable tool call is waiting"}`, http.StatusConflict)
+	}
+}
+
 // HandleAgentPaths handles GET /v1/agent/paths, returning completed agent runs.
 func (s *Service) HandleAgentPaths(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -216,10 +279,16 @@ func (s *Service) HandleAgentPaths(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) runAgentSSE(ctx context.Context, req *AgentRunRequest, w http.ResponseWriter) error {
 	sessionID := uuid.NewString()
-	approveCh := make(chan bool, 4) // buffered to prevent deadlock on rapid approvals
+	approveCh := make(chan bool, 4)
+	crabTableResCh := make(chan string, 4)
 
-	llmClient := llm.NewClient(s.llmAddr)
-	registry := gatedRegistry(fmt.Sprintf("http://%s", s.cfg.ListenAddr), approveCh)
+	llmAddr := s.mgr.URL()
+	if llmAddr == "" {
+		return fmt.Errorf("engine offline — load a model first")
+	}
+
+	llmClient := llm.NewClient(llmAddr)
+	registry := gatedRegistry(fmt.Sprintf("http://%s", s.cfg.ListenAddr), approveCh, crabTableResCh)
 	mem := memory.NewBufferMemory()
 
 	var strategy agent.Strategy
@@ -243,7 +312,11 @@ func (s *Service) runAgentSSE(ctx context.Context, req *AgentRunRequest, w http.
 
 	// Register session before starting so approve calls can find it immediately.
 	s.mu.Lock()
-	s.sessions[sessionID] = &runState{approveCh: approveCh, startedAt: time.Now()}
+	s.sessions[sessionID] = &runState{
+		approveCh:     approveCh,
+		crabTableResCh: crabTableResCh,
+		startedAt:     time.Now(),
+	}
 	s.mu.Unlock()
 
 	// Send session_start event so frontend knows the session ID for approval calls.

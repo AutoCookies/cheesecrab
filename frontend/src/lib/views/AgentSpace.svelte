@@ -20,7 +20,7 @@
     Copy,
   } from 'lucide-svelte';
   import { onMount } from 'svelte';
-  import { agentRun, agentApprove, getAgentPaths, getModels } from '../api.js';
+  import { agentRun, agentApprove, getAgentPaths, getModels, agentCrabTableResponse } from '../api.js';
 
   // ── State ────────────────────────────────────────────────────────────────────
   let goal = $state('');
@@ -68,7 +68,23 @@
     fetchActiveModel();
     loadHistory();
     const t = setInterval(fetchActiveModel, 5000);
-    return () => clearInterval(t);
+    
+    const handleTableRes = async (e) => {
+      const { sessionId: rid, result } = e.detail;
+      if (rid === sessionId || !sessionId) { // basic check
+        try {
+          await agentCrabTableResponse(rid, result);
+        } catch (err) {
+          console.warn('crabtable response error:', err);
+        }
+      }
+    };
+    window.addEventListener('crabtable-external-res', handleTableRes);
+
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('crabtable-external-res', handleTableRes);
+    };
   });
 
   async function loadHistory() {
@@ -136,6 +152,13 @@
     // Remove thinking spinner once we have a real event for this step
     if (['thought', 'tool_call', 'observation', 'final_answer', 'approval_required'].includes(ev.type)) {
       timeline = timeline.filter(e => !(e.type === 'thinking' && e.step === ev.step));
+    }
+
+    if (ev.type === 'crabtable_req') {
+      const tc = ev.payload ?? {};
+      window.dispatchEvent(new CustomEvent('crabtable-external-req', { 
+        detail: { tc, sessionId } 
+      }));
     }
 
     timeline = [...timeline, { ...ev, id: uid() }];
