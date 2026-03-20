@@ -16,11 +16,13 @@ $(CHEESEBRAIN_BIN):
 	cmake -S $(CHEESEBRAIN_DIR) -B $(CHEESEBRAIN_BUILD)
 	cmake --build $(CHEESEBRAIN_BUILD) --config Release
 
-$(UI_BIN):
+$(UI_BIN): main.go app.go frontend
 	mkdir -p local_pkgconfig
 	[ -f local_pkgconfig/webkit2gtk-4.0.pc ] || \
 		ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc local_pkgconfig/webkit2gtk-4.0.pc
-	PKG_CONFIG_PATH=$(shell pwd)/local_pkgconfig GO111MODULE=on \
+	PKG_CONFIG_PATH=$(shell pwd)/local_pkgconfig \
+	CGO_CFLAGS="-I$(shell pwd)/cheeseoffice/include" \
+	GO111MODULE=on \
 		go build -o $(UI_BIN) -tags desktop,production,webkit2gtk_4_1 .
 	rm -rf local_pkgconfig
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/AutoCookies/cheesecrab/internal/config"
 	"github.com/AutoCookies/cheesecrab/internal/plugin"
+	"github.com/AutoCookies/cheesecrab/internal/office"
 	cbproc "github.com/AutoCookies/cheesecrab/internal/process/cheesebrain"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -22,6 +23,8 @@ type App struct {
 	ctx           context.Context
 	pluginManager *plugin.PluginManager
 	manager       *cbproc.Manager
+	office        *office.Office
+	currentDoc    *office.Document
 }
 
 // NewApp creates a new App application struct
@@ -199,5 +202,59 @@ func (a *App) GetSwarmAgents() ([]map[string]interface{}, error) {
 	}
 
 	return result.Agents, nil
+}
+
+// SelectAndOpenOfficeDocument opens a file dialog and loads an office document.
+func (a *App) SelectAndOpenOfficeDocument() (string, error) {
+	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Open Office Document",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Office Documents", Pattern: "*.odt;*.docx;*.doc;*.xls;*.xlsx;*.ppt;*.pptx"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if filePath == "" {
+		return "", nil
+	}
+
+	// Initialize Office if needed
+	if a.office == nil {
+		// Attempt to point to the submodule build directory
+		cwd, _ := os.Getwd()
+		path := filepath.Join(cwd, "cheeseoffice", "instdir", "program")
+		
+		// Fallback for local dev if not found
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			path = "/usr/lib/libreoffice/program" // common system path
+		}
+
+		inst, err := office.Initialize(path)
+		if err != nil {
+			return "", fmt.Errorf("failed to init office: %v", err)
+		}
+		a.office = inst
+	}
+
+	doc, err := a.office.LoadDocument(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to load document: %v", err)
+	}
+
+	if a.currentDoc != nil {
+		a.currentDoc.Close()
+	}
+	a.currentDoc = doc
+
+	return filepath.Base(filePath), nil
+}
+
+// CloseOfficeDocument closes the currently active document.
+func (a *App) CloseOfficeDocument() {
+	if a.currentDoc != nil {
+		a.currentDoc.Close()
+		a.currentDoc = nil
+	}
 }
 

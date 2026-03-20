@@ -290,3 +290,25 @@ export async function loadModel(name) {
 		throw new Error(t || `HTTP ${res.status}`);
 	}
 }
+
+/**
+ * Open file dialog and load office document.
+ * @returns {Promise<string>} Filename
+ */
+export async function selectAndOpenOfficeDocument() {
+	const app = getApp();
+	if (app && app.SelectAndOpenOfficeDocument) {
+		return await app.SelectAndOpenOfficeDocument();
+	}
+	return "";
+}
+
+/**
+ * Close currently open office document.
+ */
+export async function closeOfficeDocument() {
+	const app = getApp();
+	if (app && app.CloseOfficeDocument) {
+		await app.CloseOfficeDocument();
+	}
+}

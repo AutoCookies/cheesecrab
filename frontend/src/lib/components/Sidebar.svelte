@@ -9,6 +9,7 @@
     BrainCircuit,
     Database,
     Table,
+    FileText,
   } from 'lucide-svelte';
 
   let { 
@@ -24,6 +25,7 @@
     { id: 'models',    icon: Database,      label: 'Models'        },
     { id: 'plugins',   icon: Puzzle,        label: 'Plugins'       },
     { id: 'crabtable', icon: Table,         label: 'Crab Table'    },
+    { id: 'office',    icon: FileText,      label: 'Cheese Office' },
     { id: 'settings',  icon: Settings,      label: 'Settings'      },
   ];
 </script>

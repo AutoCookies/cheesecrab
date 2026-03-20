@@ -9,6 +9,7 @@
   import ModelsView  from './lib/views/ModelsView.svelte';
   import PluginsView from './lib/views/PluginsView.svelte';
   import CrabTableView from './lib/views/CrabTableView.svelte';
+  import OfficeView    from './lib/views/OfficeView.svelte';
   import PluginHost  from './lib/components/workspace/PluginHost.svelte';
 
   let activeView = $state('chat');
@@ -25,7 +26,7 @@
   function toggleTheme() {
     theme = theme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.getItem('cheesecrab-theme', theme);
+    localStorage.setItem('cheesecrab-theme', theme);
   }
 
   // Fetch installed plugins from Wails backend
@@ -62,6 +63,9 @@
       <div class="view-wrapper" class:active={activeView === 'crabtable'}>
         <CrabTableView />
       </div>
+      <div class="view-wrapper" class:active={activeView === 'office'}>
+        <OfficeView />
+      </div>
       
       {#if activePlugin}
         <div class="view-wrapper active">
@@ -96,7 +100,7 @@
     flex-grow: 1;
     overflow-y: auto;
     position: relative;
-    padding: 1rem;
+    padding: 0;
   }
 
   .view-wrapper {

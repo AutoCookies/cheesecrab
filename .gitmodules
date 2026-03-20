@@ -7,3 +7,6 @@ url = https://github.com/AutoCookies/crabpath.git
 [submodule "crabtable"]
 	path = crabtable
 	url = https://github.com/AutoCookies/crabtable.git
+[submodule "cheeseoffice"]
+	path = cheeseoffice
+	url = https://github.com/AutoCookies/cheeseoffice.git

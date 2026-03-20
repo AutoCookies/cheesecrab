@@ -67,3 +67,43 @@ func AssetHandler(pluginDir string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// CrabtableHandler serves Luckysheet assets from a disk path.
+func CrabtableHandler(crabtableRoot string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.URL.Path, "/crabtable/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			filePath := strings.TrimPrefix(r.URL.Path, "/crabtable/")
+			fullPath := filepath.Join(crabtableRoot, filePath)
+
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+
+			ext := filepath.Ext(filePath)
+			contentType := mime.TypeByExtension(ext)
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+			if ext == ".js" {
+				contentType = "application/javascript"
+			}
+
+			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+
+			data, err := os.ReadFile(fullPath)
+			if err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+
+			w.Write(data)
+		})
+	}
+}
