@@ -1,5 +1,0 @@
-set(TARGET cheese-diffusion-cli)
-add_executable(${TARGET} diffusion-cli.cpp)
-install(TARGETS ${TARGET} RUNTIME)
-target_link_libraries(${TARGET} PRIVATE cheese common ${CMAKE_THREAD_LIBS_INIT})
-target_compile_features(${TARGET} PRIVATE cxx_std_17)
