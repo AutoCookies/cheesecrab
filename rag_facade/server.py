@@ -122,7 +122,69 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
+        if self.path in ("/v1/list", "/v1/list/"):
+            membrane = os.environ.get("RAG_MEMBRANE", "rag").strip() or "rag"
+            cheese = os.environ.get("CHEESEBRAIN_URL", "http://127.0.0.1:8080").rstrip("/")
+            emb_model = os.environ.get("CHEESE_EMBEDDING_MODEL", "").strip()
+            try:
+                with _db_lock:
+                    db = _ensure_db(cheese, emb_model)
+                    raw_hits = pomaidb.search_rag(
+                        db, membrane,
+                        token_ids=[0],
+                        vector=[0.0],
+                        topk=int(os.environ.get("RAG_LIST_LIMIT", "200")),
+                        candidate_budget=int(os.environ.get("RAG_CANDIDATE_BUDGET", "512")),
+                    )
+                chunks = [
+                    {"chunk_id": h[0], "doc_id": h[1], "score": h[2]}
+                    for h in raw_hits
+                ]
+                self._json(200, {"chunks": chunks, "total": len(chunks)})
+            except Exception as e:
+                self._json(500, {"error": str(e)})
+            return
         self._json(404, {"error": "not_found"})
+
+    def do_DELETE(self) -> None:
+        """DELETE /v1/document  — remove all chunks for a doc_id."""
+        if self.path not in ("/v1/document", "/v1/document/"):
+            self._json(404, {"error": "not_found"})
+            return
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            self._json(400, {"error": "invalid_json"})
+            return
+        doc_id = int(body.get("doc_id", 0))
+        if doc_id <= 0:
+            self._json(400, {"error": "doc_id required"})
+            return
+        membrane = os.environ.get("RAG_MEMBRANE", "rag").strip() or "rag"
+        cheese = os.environ.get("CHEESEBRAIN_URL", "http://127.0.0.1:8080").rstrip("/")
+        emb_model = os.environ.get("CHEESE_EMBEDDING_MODEL", "").strip()
+        try:
+            with _db_lock:
+                db = _ensure_db(cheese, emb_model)
+                # Retrieve all chunks for this doc_id to get their chunk_ids.
+                raw_hits = pomaidb.search_rag(
+                    db, membrane,
+                    token_ids=[0], vector=[0.0],
+                    topk=10000,
+                    candidate_budget=10000,
+                )
+                to_delete = [h[0] for h in raw_hits if h[1] == doc_id]
+                for cid in to_delete:
+                    try:
+                        pomaidb.delete_chunk(db, membrane, cid)
+                    except Exception:
+                        pass
+                pomaidb.freeze(db)
+            self._json(200, {"deleted_chunks": len(to_delete), "doc_id": doc_id})
+        except Exception as e:
+            self._json(500, {"error": str(e)})
 
     def do_POST(self) -> None:
         if self.path not in ("/v1/retrieve", "/v1/ingest"):

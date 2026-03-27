@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/AutoCookies/crabpath/agent"
@@ -35,13 +37,22 @@ func main() {
 	rawLog := fs.Bool("raw-log", false, "use low-level crabchain logs instead of friendly terminal UI")
 	reportPath := fs.String("report-json", "", "optional path to write run report JSON")
 	statePath := fs.String("state-json", strings.TrimSpace(os.Getenv("CHEESERAG_STATE_JSON")), "optional path to write compact run state JSON")
+	// New flags
+	chatMode := fs.Bool("chat", false, "run interactive multi-turn REPL chat mode")
+	outputFormat := fs.String("output-format", strings.TrimSpace(os.Getenv("CHEESERAG_OUTPUT_FORMAT")), "output format: text (default), json, markdown")
+	continueFrom := fs.String("continue", strings.TrimSpace(os.Getenv("CHEESERAG_CONTINUE_STATE")), "path to a previous state JSON to resume from (prepends prior goal as context)")
+	confirmDangerous := fs.Bool("confirm-dangerous", !isBoolEnv("CHEESERAG_AUTO_APPROVE"), "prompt [y/N] before executing dangerous tools (default true when TTY)")
+	yesAll := fs.Bool("yes", isBoolEnv("CHEESERAG_YES"), "auto-approve all dangerous tool prompts (implies --confirm-dangerous=false)")
+
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n", os.Args[0])
+		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
 		fs.PrintDefaults()
 	}
 	_ = fs.Parse(os.Args[1:])
 	goalArgs := fs.Args()
 	userGoal := strings.Join(goalArgs, " ")
+
+	autoApprove := *yesAll || !*confirmDangerous
 
 	llmURL := cheesebrainURL()
 	registryURL := strings.TrimSpace(os.Getenv("CHEESECRAB_REGISTRY_URL"))
@@ -53,28 +64,32 @@ func main() {
 
 	var reg *tools.Registry
 	if *autonomous {
-		// Curated autonomous toolset: avoid unrelated default tools causing drift.
 		reg = tools.NewRegistry()
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
-		reg.Register(NewLocalExecTool())
-		reg.Register(NewProcStartTool())
+		reg.Register(wrap(NewLocalExecTool(), autoApprove))
+		reg.Register(wrap(NewProcStartTool(), autoApprove))
 		reg.Register(NewProcStatusTool())
 		reg.Register(NewProcLogsTool())
-		reg.Register(NewProcStopTool())
+		reg.Register(wrap(NewProcStopTool(), autoApprove))
 		reg.Register(NewProcListTool())
 		reg.Register(NewHTTPCheckTool())
 		reg.Register(NewPortCheckTool())
+		reg.Register(NewReadFileTool())
+		reg.Register(wrap(NewWriteFileTool(), autoApprove))
+		reg.Register(NewListDirTool())
+		reg.Register(NewSearchFilesTool())
+		reg.Register(NewGitContextTool())
 	} else if minimalTools {
 		reg = tools.NewRegistry()
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
 		if enableExec {
-			reg.Register(NewLocalExecTool())
-			reg.Register(NewProcStartTool())
+			reg.Register(wrap(NewLocalExecTool(), autoApprove))
+			reg.Register(wrap(NewProcStartTool(), autoApprove))
 			reg.Register(NewProcStatusTool())
 			reg.Register(NewProcLogsTool())
-			reg.Register(NewProcStopTool())
+			reg.Register(wrap(NewProcStopTool(), autoApprove))
 			reg.Register(NewProcListTool())
 			reg.Register(NewHTTPCheckTool())
 			reg.Register(NewPortCheckTool())
@@ -83,12 +98,17 @@ func main() {
 		reg = tools.DefaultRegistry(registryURL)
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		reg.Register(NewReadFileTool())
+		reg.Register(wrap(NewWriteFileTool(), autoApprove))
+		reg.Register(NewListDirTool())
+		reg.Register(NewSearchFilesTool())
+		reg.Register(NewGitContextTool())
 		if enableExec {
-			reg.Register(NewLocalExecTool())
-			reg.Register(NewProcStartTool())
+			reg.Register(wrap(NewLocalExecTool(), autoApprove))
+			reg.Register(wrap(NewProcStartTool(), autoApprove))
 			reg.Register(NewProcStatusTool())
 			reg.Register(NewProcLogsTool())
-			reg.Register(NewProcStopTool())
+			reg.Register(wrap(NewProcStopTool(), autoApprove))
 			reg.Register(NewProcListTool())
 			reg.Register(NewHTTPCheckTool())
 			reg.Register(NewPortCheckTool())
@@ -135,35 +155,83 @@ func main() {
 	}
 	executor := agent.NewExecutor(client, reg, opts...)
 
-	_ = os.Setenv("CHEESERAG_USER_GOAL", userGoal)
-
-	goal := userGoal
+	// Build goal prefix
+	goalPrefix := ""
 	if p := strings.TrimSpace(os.Getenv("CHEESERAG_GOAL_PREFIX")); p != "" {
-		goal = p + "\n\n" + goal
+		goalPrefix = p
 	} else if minimalTools {
-		goal = "RAG rules (tools: rag_retrieve, rag_fetch_wikipedia):\n" +
+		goalPrefix = "RAG rules (tools: rag_retrieve, rag_fetch_wikipedia):\n" +
 			"- Put the user's exact question in JSON field \"query\" (not the literal word query).\n" +
 			"- You MUST call rag_retrieve first.\n" +
 			"- If rag_retrieve returns no matching chunks, call rag_fetch_wikipedia with the same query to fetch real public data.\n" +
 			"- After rag_fetch_wikipedia succeeds, call rag_retrieve again for the same query.\n" +
 			"- Then return JSON with is_final=true and final_answer grounded on retrieved passages.\n" +
-			"- Use fallback from general knowledge only if both retrieval and web fetch fail.\n\n" + goal
+			"- Use fallback from general knowledge only if both retrieval and web fetch fail."
 	} else if *autonomous {
-		goal = "Autonomous execution mode:\n" +
+		goalPrefix = "Autonomous execution mode:\n" +
 			"- Prefer using tools to execute and verify tasks, not just reasoning.\n" +
 			"- Use local_exec for running app/dev commands and inspect outputs.\n" +
+			"- Use read_file/write_file/list_dir/search_files for filesystem access.\n" +
+			"- Use git_context to understand the repo state before making changes.\n" +
 			"- Use proc_start/proc_status/proc_logs/proc_stop/proc_list for long-running services.\n" +
 			"- Verify in this order: port_check first, then http_check.\n" +
 			"- If a check fails, inspect logs/status and retry once with corrected args.\n" +
-			"- Iterate until goal is actually complete, then return final_answer with concrete results.\n\n" + goal
+			"- Iterate until goal is actually complete, then return final_answer with concrete results."
+	} else {
+		goalPrefix = "You have access to filesystem tools (read_file, write_file, list_dir, search_files) " +
+			"and git_context to understand and modify the codebase. Use them proactively."
+	}
+
+	// --continue: prepend prior goal/answer as context.
+	if *continueFrom != "" {
+		if prior, err := loadPriorState(*continueFrom); err == nil {
+			if prior.UserGoal != "" && goalPrefix != "" {
+				goalPrefix += "\n\nPrior session context: " + prior.UserGoal
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: could not load --continue state: %v\n", err)
+		}
+	}
+
+	// Chat mode
+	if *chatMode {
+		requirePreflight := minimalTools || os.Getenv("CHEESERAG_PREFLIGHT") == "1"
+		if !*skipPreflight && os.Getenv("CHEESERAG_SKIP_PREFLIGHT") != "1" && requirePreflight {
+			if err := preflightRAG(context.Background(), llmURL, ragFacadeURL()); err != nil {
+				fmt.Fprintf(os.Stderr, "preflight failed: %v\n(set -skip-preflight or CHEESERAG_SKIP_PREFLIGHT=1 to bypass)\n", err)
+				os.Exit(1)
+			}
+		}
+		runChatMode(executor, goalPrefix, timeoutSec)
+		return
+	}
+
+	// Single-shot mode
+	goal := userGoal
+	if goalPrefix != "" {
+		if goal != "" {
+			goal = goalPrefix + "\n\n" + goal
+		} else {
+			goal = goalPrefix
+		}
 	}
 	if strings.TrimSpace(goal) == "" {
 		fs.Usage()
 		os.Exit(2)
 	}
 
+	_ = os.Setenv("CHEESERAG_USER_GOAL", userGoal)
+
+	// SIGINT / SIGTERM → cancel context, print partial answer.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Fprintln(os.Stderr, "\n[interrupted — cancelling run]")
+		cancel()
+	}()
 
 	requirePreflight := minimalTools || os.Getenv("CHEESERAG_PREFLIGHT") == "1"
 	if !*skipPreflight && os.Getenv("CHEESERAG_SKIP_PREFLIGHT") != "1" && requirePreflight {
@@ -176,7 +244,9 @@ func main() {
 	events, path := executor.Run(ctx, goal)
 	for ev := range events {
 		if ev.Type == agent.EventFinalAnswer {
-			fmt.Println("\nAnswer:", ev.Payload)
+			if s, ok := ev.Payload.(string); ok {
+				printFinalAnswer(s, *outputFormat)
+			}
 		}
 	}
 	steps := len(path.Steps)
@@ -213,11 +283,54 @@ func main() {
 			}
 		}
 		if strings.TrimSpace(path.Answer) != "" {
-			fmt.Println("Answer:", path.Answer)
+			printFinalAnswer(path.Answer, *outputFormat)
 		} else {
-			fmt.Fprintln(os.Stderr, "Không có câu trả lời cuối: model không gửi is_final/final_answer hoặc đã hết bước.")
+			fmt.Fprintln(os.Stderr, "No final answer: model did not emit is_final/final_answer or ran out of steps.")
 		}
 	}
+}
+
+// wrap applies ConfirmingTool to dangerous tools.
+func wrap(t Tool, autoApprove bool) Tool {
+	return WrapWithConfirm(t, autoApprove)
+}
+
+// printFinalAnswer renders the answer in the requested format.
+func printFinalAnswer(answer, format string) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "json":
+		b, _ := json.Marshal(map[string]string{"answer": answer})
+		fmt.Println("\nAnswer:", string(b))
+	case "markdown":
+		fmt.Printf("\n## Answer\n\n%s\n", answer)
+	default:
+		fmt.Println("\nAnswer:", answer)
+	}
+}
+
+// isBoolEnv returns true if the env var is "1", "true", "yes".
+func isBoolEnv(key string) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+// priorState minimal shape from a state JSON produced by writeRunState.
+type priorState struct {
+	UserGoal string `json:"user_goal"`
+	Answer   string `json:"answer"`
+	Status   string `json:"status"`
+}
+
+func loadPriorState(path string) (*priorState, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var s priorState
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
 
 func writeRunReport(path string, p *agent.CrabPath, dur time.Duration, userGoal string) error {
@@ -319,6 +432,8 @@ func inferObservedIntent(goal string) string {
 	case strings.Contains(g, "read file") || strings.Contains(g, "show file") || strings.Contains(g, "tail log") || strings.Contains(g, "list files") ||
 		strings.Contains(g, "git status") || strings.Contains(g, "git diff") || strings.Contains(g, "pwd") || strings.Contains(g, "working directory"):
 		return "readonly"
+	case strings.Contains(g, "write") || strings.Contains(g, "edit") || strings.Contains(g, "create file") || strings.Contains(g, "modify"):
+		return "file_edit"
 	default:
 		return "general"
 	}

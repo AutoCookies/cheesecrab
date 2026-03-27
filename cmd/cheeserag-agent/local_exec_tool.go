@@ -30,7 +30,9 @@ func NewLocalExecTool() *LocalExecTool {
 
 func (t *LocalExecTool) Name() string      { return "local_exec" }
 func (t *LocalExecTool) Dangerous() bool   { return true }
-func (t *LocalExecTool) Description() string { return "Execute local shell commands (dangerous). Supports command, cwd, timeout_sec." }
+func (t *LocalExecTool) Description() string {
+	return "Execute local shell commands (dangerous). Supports command, cwd, timeout_sec, stdin."
+}
 
 func (t *LocalExecTool) Schema() map[string]any {
 	return map[string]any{
@@ -47,6 +49,10 @@ func (t *LocalExecTool) Schema() map[string]any {
 			"timeout_sec": map[string]any{
 				"type":        "number",
 				"description": "Optional timeout in seconds.",
+			},
+			"stdin": map[string]any{
+				"type":        "string",
+				"description": "Optional text to pass to the command's standard input.",
 			},
 		},
 		"required": []string{"command"},
@@ -82,6 +88,12 @@ func (t *LocalExecTool) Execute(ctx context.Context, args map[string]any) (strin
 	if err := ensureAllowedCWD(cmd.Dir); err != nil {
 		return "", err
 	}
+
+	// Optional stdin
+	if stdinText, ok := args["stdin"].(string); ok && stdinText != "" {
+		cmd.Stdin = strings.NewReader(stdinText)
+	}
+
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
 	if len(text) > 8000 {
@@ -90,17 +102,22 @@ func (t *LocalExecTool) Execute(ctx context.Context, args map[string]any) (strin
 	if runCtx.Err() == context.DeadlineExceeded {
 		return "", fmt.Errorf("local_exec: timeout after %s", timeout)
 	}
+	exitCode := 0
 	if err != nil {
-		return "", fmt.Errorf("local_exec: command failed: %v\n%s", err, text)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			return "", fmt.Errorf("local_exec: command failed: %v\n%s", err, text)
+		}
 	}
 	if text == "" {
 		text = "(no output)"
 	}
-	return text, nil
+	return fmt.Sprintf("exit_code=%d\n%s", exitCode, text), nil
 }
 
 func inferCommandFromArgs(args map[string]any) string {
-	known := []string{"go ", "npm ", "pnpm ", "yarn ", "python ", "python3 ", "node ", "make ", "cmake ", "docker "}
+	known := []string{"go ", "npm ", "pnpm ", "yarn ", "python ", "python3 ", "node ", "make ", "cmake ", "docker ", "git ", "curl "}
 	for _, v := range args {
 		s := strings.TrimSpace(fmt.Sprintf("%v", v))
 		if s == "" || s == "<NIL>" {
@@ -137,7 +154,13 @@ func ensureAllowedCommand(command string) error {
 	if fields := strings.Fields(command); len(fields) > 0 {
 		first = fields[0]
 	}
-	allowed := []string{"go", "npm", "pnpm", "yarn", "python", "python3", "node", "make", "cmake", "docker", "docker-compose", "bash", "sh"}
+	// Expanded default allowlist — includes git, curl, and read-only tools.
+	allowed := []string{
+		"go", "npm", "pnpm", "yarn", "python", "python3", "node",
+		"make", "cmake", "docker", "docker-compose", "bash", "sh",
+		"git", "curl", "wget", "cat", "grep", "find", "ls",
+		"head", "tail", "wc", "echo", "env", "printenv",
+	}
 	if allow != "" {
 		allowed = nil
 		for _, s := range strings.Split(allow, ",") {
