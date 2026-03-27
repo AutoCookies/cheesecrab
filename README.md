@@ -113,6 +113,7 @@ If you only run `cheese-server` (or the Web UI) and chat, that is **plain chat**
 | `-skip-preflight` | Skip startup HTTP checks |
 | `-raw-log` | Print low-level crabchain logs instead of the friendly terminal progress UI |
 | `-report-json` | Write structured run report JSON (steps/tools/status/answer) |
+| `-state-json` | Write compact run state JSON (`status`, `steps`, `last_error`) for automation/recovery |
 
 Minimal RAG-only mode is the default unless you pass `-full-tools` or set `CHEESERAG_MINIMAL_TOOLS=0`.
 For Cursor/Claude-Code style behavior, use `-autonomous` (and optionally set `CHEESERAG_EXEC_ALLOW=*` to allow any shell command in `local_exec`).
@@ -130,6 +131,9 @@ Security knobs:
 - `CHEESERAG_EXEC_DENY_REGEX` (optional deny regex for dangerous shell patterns)
 - `CHEESERAG_PROC_REGISTRY` (optional path for persistent managed-process registry JSON)
 - `CHEESERAG_AUTO_SUMMARY_ON_FAIL` (default on): if model fails to finalize, return an automatic summary from tool outputs/errors
+- `CHEESERAG_STATE_JSON` (optional default path for `-state-json`)
+- `CHEESERAG_VERIFY_RETRIES` / `CHEESERAG_VERIFY_RETRY_DELAY_MS` (`http_check` + `port_check` retry/backoff)
+- `CHEESERAG_RAG_RETRIES` (`rag_retrieve` + `rag_fetch_wikipedia` HTTP retry count)
 
 ### Embedding dimension
 

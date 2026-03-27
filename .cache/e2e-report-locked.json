@@ -1,0 +1,10 @@
+{
+  "answer": "The status of the PomaiDB store is 200, rag_db_path is /data/pomai_db, and cheesebrain_url is http://127.0.0.1:9090/health.",
+  "duration_ms": 11953,
+  "ended_at": "2026-03-27T15:16:09.916894362+07:00",
+  "id": "crab-1774599357963349023",
+  "started_at": "2026-03-27T15:15:57.96335937+07:00",
+  "status": "completed",
+  "steps": null,
+  "user_goal": "Check http://127.0.0.1:9090/health and return status plus rag_db_path and cheesebrain_url"
+}

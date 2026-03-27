@@ -34,6 +34,7 @@ func main() {
 	skipPreflight := fs.Bool("skip-preflight", false, "skip GET /health and /v1/models checks")
 	rawLog := fs.Bool("raw-log", false, "use low-level crabchain logs instead of friendly terminal UI")
 	reportPath := fs.String("report-json", "", "optional path to write run report JSON")
+	statePath := fs.String("state-json", strings.TrimSpace(os.Getenv("CHEESERAG_STATE_JSON")), "optional path to write compact run state JSON")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n", os.Args[0])
 		fs.PrintDefaults()
@@ -196,6 +197,13 @@ func main() {
 			fmt.Printf("Report: %s\n", rp)
 		}
 	}
+	if sp := strings.TrimSpace(*statePath); sp != "" {
+		if err := writeRunState(sp, path, dur, userGoal); err != nil {
+			fmt.Fprintf(os.Stderr, "state write failed: %v\n", err)
+		} else {
+			fmt.Printf("State: %s\n", sp)
+		}
+	}
 	if path.Status != agent.PathCompleted {
 		for _, st := range path.Steps {
 			for _, tc := range st.ToolCalls {
@@ -214,14 +222,48 @@ func main() {
 
 func writeRunReport(path string, p *agent.CrabPath, dur time.Duration, userGoal string) error {
 	out := map[string]any{
-		"id":         p.ID,
-		"user_goal":  userGoal,
-		"status":     p.Status,
-		"started_at": p.StartedAt,
-		"ended_at":   p.EndedAt,
+		"id":          p.ID,
+		"user_goal":   userGoal,
+		"status":      p.Status,
+		"started_at":  p.StartedAt,
+		"ended_at":    p.EndedAt,
 		"duration_ms": dur.Milliseconds(),
-		"steps":      p.Steps,
-		"answer":     p.Answer,
+		"steps":       p.Steps,
+		"answer":      p.Answer,
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	if dir := filepath.Dir(path); strings.TrimSpace(dir) != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+func writeRunState(path string, p *agent.CrabPath, dur time.Duration, userGoal string) error {
+	lastError := ""
+	lastTool := ""
+	for _, st := range p.Steps {
+		for _, tc := range st.ToolCalls {
+			if strings.TrimSpace(tc.Error) != "" {
+				lastError = tc.Error
+				lastTool = tc.ToolName
+			}
+		}
+	}
+	out := map[string]any{
+		"id":          p.ID,
+		"user_goal":   userGoal,
+		"status":      p.Status,
+		"duration_ms": dur.Milliseconds(),
+		"steps":       len(p.Steps),
+		"answer":      p.Answer,
+		"last_error":  lastError,
+		"last_tool":   lastTool,
+		"updated_at":  time.Now().UTC().Format(time.RFC3339),
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

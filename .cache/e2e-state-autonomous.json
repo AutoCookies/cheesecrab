@@ -1,0 +1,11 @@
+{
+  "answer": "",
+  "duration_ms": 90000,
+  "id": "crab-1774599382036170472",
+  "last_error": "",
+  "last_tool": "",
+  "status": "aborted",
+  "steps": 0,
+  "updated_at": "2026-03-27T08:17:52Z",
+  "user_goal": "Use tool http_check on http://127.0.0.1:9090/health, then finalize with status and fields rag_db_path, cheesebrain_url. Do not use proc tools."
+}

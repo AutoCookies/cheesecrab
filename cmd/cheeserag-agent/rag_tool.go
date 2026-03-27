@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -121,8 +122,8 @@ func (t *RAGRetrieveTool) Execute(ctx context.Context, args map[string]any) (str
 		topK = v
 	}
 	body := map[string]any{
-		"query":  q,
-		"top_k":  int(topK),
+		"query": q,
+		"top_k": int(topK),
 	}
 	out, err := t.retrieveOnce(ctx, body)
 	if err != nil {
@@ -169,7 +170,7 @@ func (t *RAGRetrieveTool) retrieveOnce(ctx context.Context, body map[string]any)
 		return out, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := t.client.Do(req)
+	resp, err := doRequestWithRetry(ctx, t.client, req, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return out, err
 	}
@@ -248,7 +249,7 @@ func (t *RAGFetchWikipediaTool) fetchWikipediaSummary(ctx context.Context, lang,
 		return "", "", "", err
 	}
 	req.Header.Set("User-Agent", "cheeserag-agent/0.1 (+https://local)")
-	resp, err := t.client.Do(req)
+	resp, err := doRequestWithRetry(ctx, t.client, req, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -283,7 +284,7 @@ func (t *RAGFetchWikipediaTool) fetchWikipediaSummary(ctx context.Context, lang,
 		return "", "", "", err
 	}
 	sumReq.Header.Set("User-Agent", "cheeserag-agent/0.1 (+https://local)")
-	sumResp, err := t.client.Do(sumReq)
+	sumResp, err := doRequestWithRetry(ctx, t.client, sumReq, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -322,7 +323,7 @@ func (t *RAGFetchWikipediaTool) fetchWikipediaExtract(ctx context.Context, lang,
 		return "", err
 	}
 	req.Header.Set("User-Agent", "cheeserag-agent/0.1 (+https://local)")
-	resp, err := t.client.Do(req)
+	resp, err := doRequestWithRetry(ctx, t.client, req, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return "", err
 	}
@@ -364,7 +365,7 @@ func (t *RAGFetchWikipediaTool) ingestText(ctx context.Context, docID int, text 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := t.client.Do(req)
+	resp, err := doRequestWithRetry(ctx, t.client, req, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return err
 	}
@@ -381,4 +382,44 @@ func ragFacadeURL() string {
 		return v
 	}
 	return "http://127.0.0.1:9090"
+}
+
+func ragRetryCount() int {
+	n := 1
+	if v := strings.TrimSpace(os.Getenv("CHEESERAG_RAG_RETRIES")); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p >= 0 {
+			n = p
+		}
+	}
+	if n > 5 {
+		n = 5
+	}
+	return n
+}
+
+func doRequestWithRetry(ctx context.Context, c *http.Client, req *http.Request, retries int, baseDelay time.Duration) (*http.Response, error) {
+	var lastErr error
+	for i := 0; i <= retries; i++ {
+		attemptReq := req.Clone(ctx)
+		if req.GetBody != nil {
+			rc, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			attemptReq.Body = rc
+		}
+		resp, err := c.Do(attemptReq)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if i < retries {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(baseDelay * time.Duration(i+1)):
+			}
+		}
+	}
+	return nil, lastErr
 }
