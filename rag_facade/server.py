@@ -113,7 +113,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path in ("/health", "/health/"):
-            self._json(200, {"status": "ok"})
+            self._json(
+                200,
+                {
+                    "status": "ok",
+                    "rag_db_path": os.environ.get("RAG_DB_PATH", ""),
+                    "cheesebrain_url": os.environ.get("CHEESEBRAIN_URL", ""),
+                },
+            )
             return
         self._json(404, {"error": "not_found"})
 
