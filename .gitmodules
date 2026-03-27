@@ -10,3 +10,12 @@
 [submodule "plugins/crabcalendar"]
 	path = plugins/crabcalendar
 	url = https://github.com/AutoCookies/crabcalendar.git
+[submodule "third_party/pomaidb"]
+	path = third_party/pomaidb
+	url = https://github.com/pomagrenate/pomaidb.git
+[submodule "third_party/cheesepath"]
+	path = third_party/cheesepath
+	url = https://github.com/pomagrenate/cheesepath.git
+[submodule "third_party/cheesebrain"]
+	path = third_party/cheesebrain
+	url = https://github.com/pomagrenate/cheesebrain.git

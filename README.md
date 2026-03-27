@@ -1,4 +1,132 @@
-# Cheese Crab
+# Cheeserag
+
+This repository wires a **local RAG stack** using three submodules:
+
+| Component | Role |
+|-----------|------|
+| [cheesebrain](https://github.com/pomagrenate/cheesebrain) (`cheese-server`) | `/v1/chat/completions` + `/v1/embeddings` — use **`--embeddings --pooling mean`** (or `cls`/`last`); else 501 (no embeds) or 400 (pooling `none` vs OAI) |
+| [pomaidb](https://github.com/pomagrenate/pomaidb) | Embedded vector store (RAG membrane); accessed via the Python `pomaidb` package and `libpomai_c` |
+| [cheesepath](https://github.com/pomagrenate/cheesepath) (Go module `github.com/AutoCookies/crabpath`) | Agent (`ReAct`) with a custom **`rag_retrieve`** tool |
+
+The **RAG facade** is a small Python HTTP service in [`rag_facade/`](rag_facade/) that calls Cheesebrain for embeddings and PomaiDB for storage/search. The Go binary [`cmd/cheeserag-agent`](cmd/cheeserag-agent/) points the LLM client at Cheesebrain and registers `rag_retrieve` against that facade.
+
+### What “RAG” means here
+
+**Real RAG in this project** is **PomaiDB + ingest/retrieve + the agent** (Cheesepath with `rag_retrieve`). The vector store and chunk text live in PomaiDB; the agent decides when to retrieve and then answers using Cheesebrain as the **LLM**. **Cheesebrain alone** is only inference + `/v1/embeddings` — it does **not** store your knowledge base or perform retrieval-augmented answers by itself.
+
+If you only run `cheese-server` (or the Web UI) and chat, that is **plain chat**, not the PomaiDB-backed RAG pipeline.
+
+### Build prerequisites
+
+1. **PomaiDB** — init submodules (includes `palloc`), then build `libpomai_c.so`:
+
+   ```bash
+   git submodule update --init --recursive third_party/pomaidb
+   cd third_party/pomaidb
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+   cmake --build build -j"$(nproc)"
+   ```
+
+   Set `POMAI_C_LIB` to the absolute path of `third_party/pomaidb/build/libpomai_c.so` (see `third_party/pomaidb/README.md` for tests and options).
+
+   If `git submodule update --init --recursive` (whole repo) fails on a missing `models/ggml-vocabs` entry, init **only** `third_party/pomaidb` as above, or fix/remove that stray gitlink in your tree.
+2. **Cheesebrain** — build `cheese-server` once:
+
+   ```bash
+   cd third_party/cheesebrain
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCHEESE_BUILD_SERVER=ON
+   cmake --build build -j"$(nproc)"
+   ```
+
+   Binary: `third_party/cheesebrain/build/bin/cheese-server` (see that repo’s README for options).
+3. **Go 1.23+** — for the agent.
+
+### Environment variables
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `POMAI_C_LIB` | Path to `libpomai_c.so` | `.../pomaidb/build/libpomai_c.so` |
+| `RAG_DB_PATH` | PomaiDB on-disk directory | `/tmp/cheeserag_db` |
+| `RAG_EMBEDDING_DIM` | Must match the embedding size of the model served by Cheesebrain | `768`, `1024`, … |
+| `CHEESEBRAIN_URL` | Base URL for chat + embeddings | `http://127.0.0.1:8080` |
+| `CHEESE_EMBEDDING_MODEL` | Optional `model` field for `/v1/embeddings` | empty or model id as exposed by the server |
+| `RAG_FACADE_HOST` / `RAG_FACADE_PORT` | Facade bind address | `127.0.0.1` / `9090` |
+| `RAG_MEMBRANE` | PomaiDB RAG membrane name | `rag` |
+| `RAG_CANDIDATE_BUDGET` | Lexical+vector search breadth (retrieve) | `512` |
+| `RAG_FACADE_URL` | Facade base URL for the Go agent | `http://127.0.0.1:9090` |
+| `CHEESECRAB_REGISTRY_URL` | Optional; defaults to `CHEESEBRAIN_URL` for `list_models` / `switch_model` tools | `http://127.0.0.1:8080` |
+
+### Run order (three processes)
+
+1. Start **Cheesebrain** with **embeddings** and a **non-none pooling** type (chat models often default to `none`, which makes OpenAI-style `/v1/embeddings` return **400**):
+
+   ```bash
+   ./third_party/cheesebrain/build/bin/cheese-server --embeddings --pooling mean \
+     -m ./models/qwen2.5-0.5b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 8080
+   ```
+
+   Without `--embeddings`, `/v1/embeddings` returns **501**. With pooling still `none`, you may see **400** and a message about OAI compatibility — use `--pooling mean` (or `cls` / `last` per model).
+
+2. Start the **RAG facade** (from the repo root):
+
+   ```bash
+   cd /path/to/cheeserag
+   source scripts/rag_env.sh
+   export CHEESEBRAIN_URL=http://127.0.0.1:8080
+   # RAG_EMBEDDING_DIM optional — facade infers from /v1/embeddings on first ingest/retrieve
+   PYTHONPATH=. python -m rag_facade
+   ```
+
+3. **Ingest** sample text (optional):
+
+   ```bash
+   curl -sS http://127.0.0.1:9090/v1/ingest -H 'Content-Type: application/json' \
+     -d '{"doc_id":1,"text":"Your knowledge base text here."}'
+   ```
+
+4. Run the **agent**:
+
+   ```bash
+   export CHEESEBRAIN_URL=http://127.0.0.1:8080
+   export RAG_FACADE_URL=http://127.0.0.1:9090
+   go run ./cmd/cheeserag-agent "What does the knowledge base say about …?"
+   ```
+
+### Embedding dimension
+
+Vectors must match PomaiDB’s `dim`. The facade **auto-detects** the size from the first successful `/v1/embeddings` call (or from `RAG_EMBEDDING_DIM` if you set it). Optional: print the size manually:
+
+```bash
+export CHEESEBRAIN_URL=http://127.0.0.1:8080
+python3 scripts/probe_embedding_dim.py   # prints one integer (requires --embeddings on cheese-server)
+```
+
+If you set `RAG_EMBEDDING_DIM` explicitly, it must match what the API returns or requests will error. Changing model/dim usually needs a **new** `RAG_DB_PATH`.
+
+### Scripts (full pipeline helper)
+
+- `source scripts/rag_env.sh` — default `POMAI_C_LIB`, `RAG_DB_PATH` (under repo `.cache/…`), and URLs.
+- `scripts/probe_embedding_dim.py` — prints embedding size (see above).
+- `scripts/demo_rag.sh` — ingests a short built-in document and runs the agent (expects terminals 1–2 already running). Set `CHEESERAG_DEMO_TEXT` / `CHEESERAG_DEMO_QUESTION` to customize.
+
+**Agent env:**
+
+| Variable | Meaning |
+|----------|---------|
+| `CHEESERAG_MINIMAL_TOOLS=1` | Only register `rag_retrieve` (no shell/file tools). Default for `demo_rag.sh`. |
+| `CHEESERAG_GOAL_PREFIX` | Optional text prepended to the user goal (e.g. instructions to call `rag_retrieve` first). |
+
+### HTTP API (facade)
+
+- `GET /health` — liveness.
+- `POST /v1/retrieve` — JSON `{"query":"...","top_k":5}` → `context` + `hits`.
+- `POST /v1/ingest` — JSON `{"doc_id":1,"text":"...","max_chunk_bytes":512,"overlap_bytes":64}`.
+
+PomaiDB is **single-threaded**; the facade serializes database calls with a lock. Embedding requests run outside the lock so Cheesebrain can work concurrently.
+
+---
+
+## Legacy: Cheese Crab
 
 <img src="./media/cheesecrab0.png"/>
 
