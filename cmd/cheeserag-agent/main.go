@@ -246,24 +246,51 @@ func writeRunReport(path string, p *agent.CrabPath, dur time.Duration, userGoal 
 func writeRunState(path string, p *agent.CrabPath, dur time.Duration, userGoal string) error {
 	lastError := ""
 	lastTool := ""
+	firstTool := ""
+	successfulToolCalls := 0
+	failedToolCalls := 0
+	forcedPathUsed := false
+	observedIntent := inferObservedIntent(userGoal)
+	deterministicAutonomous := deterministicAutonomousEnabled()
 	for _, st := range p.Steps {
+		if strings.Contains(strings.ToLower(st.Thought.Reasoning), "auto execution injected by executor") ||
+			strings.Contains(strings.ToLower(st.Thought.Reasoning), "auto verification injected by executor") {
+			forcedPathUsed = true
+		}
 		for _, tc := range st.ToolCalls {
+			if firstTool == "" && strings.TrimSpace(tc.ToolName) != "" {
+				firstTool = tc.ToolName
+			}
+			if strings.TrimSpace(tc.ToolName) != "" {
+				lastTool = tc.ToolName
+			}
 			if strings.TrimSpace(tc.Error) != "" {
 				lastError = tc.Error
-				lastTool = tc.ToolName
+				failedToolCalls++
+			} else if strings.TrimSpace(tc.Result) != "" {
+				successfulToolCalls++
 			}
 		}
 	}
+	stopReason := inferStopReason(p, failedToolCalls)
 	out := map[string]any{
-		"id":          p.ID,
-		"user_goal":   userGoal,
-		"status":      p.Status,
-		"duration_ms": dur.Milliseconds(),
-		"steps":       len(p.Steps),
-		"answer":      p.Answer,
-		"last_error":  lastError,
-		"last_tool":   lastTool,
-		"updated_at":  time.Now().UTC().Format(time.RFC3339),
+		"state_schema_version":     1,
+		"id":                       p.ID,
+		"user_goal":                userGoal,
+		"status":                   p.Status,
+		"duration_ms":              dur.Milliseconds(),
+		"steps":                    len(p.Steps),
+		"answer":                   p.Answer,
+		"stop_reason":              stopReason,
+		"first_tool":               firstTool,
+		"last_error":               lastError,
+		"last_tool":                lastTool,
+		"successful_tool_calls":    successfulToolCalls,
+		"failed_tool_calls":        failedToolCalls,
+		"observed_intent":          observedIntent,
+		"deterministic_autonomous": deterministicAutonomous,
+		"forced_path_used":         forcedPathUsed,
+		"updated_at":               time.Now().UTC().Format(time.RFC3339),
 	}
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -275,4 +302,43 @@ func writeRunState(path string, p *agent.CrabPath, dur time.Duration, userGoal s
 		}
 	}
 	return os.WriteFile(path, b, 0o644)
+}
+
+func deterministicAutonomousEnabled() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("CHEESERAG_DETERMINISTIC_AUTONOMOUS")))
+	return v == "" || v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func inferObservedIntent(goal string) string {
+	g := strings.ToLower(strings.TrimSpace(goal))
+	switch {
+	case strings.Contains(g, "http://") || strings.Contains(g, "https://") || strings.Contains(g, "health") || strings.Contains(g, "endpoint"):
+		return "http_check"
+	case strings.Contains(g, "go test") || strings.Contains(g, "run tests"):
+		return "run_tests"
+	case strings.Contains(g, "read file") || strings.Contains(g, "show file") || strings.Contains(g, "tail log") || strings.Contains(g, "list files") ||
+		strings.Contains(g, "git status") || strings.Contains(g, "git diff") || strings.Contains(g, "pwd") || strings.Contains(g, "working directory"):
+		return "readonly"
+	default:
+		return "general"
+	}
+}
+
+func inferStopReason(p *agent.CrabPath, failedToolCalls int) string {
+	switch p.Status {
+	case agent.PathCompleted:
+		return "completed"
+	case agent.PathAborted:
+		return "timeout_or_cancellation"
+	case agent.PathFailed:
+		if failedToolCalls > 0 {
+			return "tool_errors"
+		}
+		if strings.TrimSpace(p.Answer) != "" {
+			return "max_steps_or_nonfinal_model_output"
+		}
+		return "model_or_runtime_failure"
+	default:
+		return "unknown"
+	}
 }

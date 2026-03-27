@@ -1,5 +1,13 @@
 # Large GGUF weights (keep locally; download via Hugging Face if needed)
 models/*.gguf
 
+# Local runtime/build artifacts
+.cache/
+cheeserag-agent
+
+# Agent run artifacts
+*-report.json
+*-state.json
+
 __pycache__/
 *.py[cod]

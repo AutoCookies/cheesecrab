@@ -134,6 +134,10 @@ Security knobs:
 - `CHEESERAG_STATE_JSON` (optional default path for `-state-json`)
 - `CHEESERAG_VERIFY_RETRIES` / `CHEESERAG_VERIFY_RETRY_DELAY_MS` (`http_check` + `port_check` retry/backoff)
 - `CHEESERAG_RAG_RETRIES` (`rag_retrieve` + `rag_fetch_wikipedia` HTTP retry count)
+- `CHEESERAG_DETERMINISTIC_AUTONOMOUS` (default `1`): enable executor-side deterministic intent routing/policy for autonomous tasks; set `0` to fall back to model-only tool selection
+- `CHEESERAG_AUTONOMOUS_ERROR_STREAK` (default `2`): stop early when identical tool-error signature repeats N times (set `0` to disable)
+
+`state-json` includes compact production telemetry: `observed_intent`, `deterministic_autonomous`, `forced_path_used`, tool call counters, and `stop_reason`.
 
 ### Embedding dimension
 
@@ -151,6 +155,7 @@ If you set `RAG_EMBEDDING_DIM` explicitly, it must match what the API returns or
 - `source scripts/rag_env.sh` — default `POMAI_C_LIB`, `RAG_DB_PATH` (under repo `.cache/…`), and URLs.
 - `scripts/probe_embedding_dim.py` — prints embedding size (see above).
 - `scripts/demo_rag.sh` — ingests a short built-in document and runs the agent (expects terminals 1–2 already running). Set `CHEESERAG_DEMO_TEXT` / `CHEESERAG_DEMO_QUESTION` to customize.
+- `scripts/state_dashboard.py` — summarize `state-json` run artifacts into a compact ops table.
 
 **Agent env:**
 
