@@ -92,6 +92,45 @@ If you only run `cheese-server` (or the Web UI) and chat, that is **plain chat**
    go run ./cmd/cheeserag-agent "What does the knowledge base say about …?"
    ```
 
+   Optional: **preflight** checks (`rag_facade` `/health` + cheesebrain `/v1/models`) run automatically. Bypass with `-skip-preflight` or `CHEESERAG_SKIP_PREFLIGHT=1` if you know services are up.
+
+5. **Batch ingest** (optional helper — HTTP only, no direct PomaiDB import):
+
+   ```bash
+   go run ./cmd/cheeserag-ingest -dir ./data
+   # or: go run ./cmd/cheeserag-ingest ./data/llama_cpp_overview.md
+   ```
+
+### Agent CLI flags (`cheeserag-agent`)
+
+| Flag | Meaning |
+|------|---------|
+| `-model` | Model id for cheese-server (default: `CHEESE_MODEL` env, else server default) |
+| `-max-steps` | Max ReAct steps (`0` = use `CHEESERAG_MAX_STEPS` or defaults) |
+| `-timeout` | Total run timeout seconds (`0` = `CHEESERAG_TIMEOUT_SEC` or `120`) |
+| `-full-tools` | Register full Cheesepath tool set plus RAG (not RAG-only minimal mode) |
+| `-autonomous` | Agent-style execution mode for dev/app tasks (full tools + `local_exec`) |
+| `-skip-preflight` | Skip startup HTTP checks |
+| `-raw-log` | Print low-level crabchain logs instead of the friendly terminal progress UI |
+| `-report-json` | Write structured run report JSON (steps/tools/status/answer) |
+
+Minimal RAG-only mode is the default unless you pass `-full-tools` or set `CHEESERAG_MINIMAL_TOOLS=0`.
+For Cursor/Claude-Code style behavior, use `-autonomous` (and optionally set `CHEESERAG_EXEC_ALLOW=*` to allow any shell command in `local_exec`).
+Autonomous defaults are higher (`max-steps=30`, `timeout=300s`) when you do not override flags/env.
+
+When autonomous mode is enabled, extra runtime tools are available:
+- `local_exec`: run one-off local commands (`command`, optional `cwd`, `timeout_sec`)
+- `proc_start` / `proc_status` / `proc_logs` / `proc_stop` / `proc_list`: manage long-running app processes with logs
+- `http_check` / `port_check`: verify app/network readiness before concluding
+
+Security knobs:
+- `CHEESERAG_EXEC_ALLOW` (comma-separated command allowlist, or `*` for all)
+- `CHEESERAG_EXEC_TIMEOUT_SEC` (default timeout for `local_exec`)
+- `CHEESERAG_EXEC_ROOT` (optional path sandbox: block command `cwd` outside this root)
+- `CHEESERAG_EXEC_DENY_REGEX` (optional deny regex for dangerous shell patterns)
+- `CHEESERAG_PROC_REGISTRY` (optional path for persistent managed-process registry JSON)
+- `CHEESERAG_AUTO_SUMMARY_ON_FAIL` (default on): if model fails to finalize, return an automatic summary from tool outputs/errors
+
 ### Embedding dimension
 
 Vectors must match PomaiDB’s `dim`. The facade **auto-detects** the size from the first successful `/v1/embeddings` call (or from `RAG_EMBEDDING_DIM` if you set it). Optional: print the size manually:
@@ -113,12 +152,13 @@ If you set `RAG_EMBEDDING_DIM` explicitly, it must match what the API returns or
 
 | Variable | Meaning |
 |----------|---------|
-| `CHEESERAG_MINIMAL_TOOLS=1` | Only register `rag_retrieve` (no shell/file tools). Default for `demo_rag.sh`. |
+| `CHEESERAG_MINIMAL_TOOLS=0` | Use full Cheesepath registry + RAG tools (default is minimal RAG-only). |
 | `CHEESERAG_GOAL_PREFIX` | Optional text prepended to the user goal (e.g. instructions to call `rag_retrieve` first). |
+| `CHEESERAG_SKIP_PREFLIGHT=1` | Do not probe facade/cheesebrain before running the agent. |
 
 ### HTTP API (facade)
 
-- `GET /health` — liveness.
+- `GET /health` — liveness; JSON includes `rag_db_path` and `cheesebrain_url` when set in the environment (for debugging).
 - `POST /v1/retrieve` — JSON `{"query":"...","top_k":5}` → `context` + `hits`.
 - `POST /v1/ingest` — JSON `{"doc_id":1,"text":"...","max_chunk_bytes":512,"overlap_bytes":64}`.
 

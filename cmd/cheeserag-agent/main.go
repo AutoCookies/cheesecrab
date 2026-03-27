@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,48 +25,115 @@ func cheesebrainURL() string {
 }
 
 func main() {
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	modelFlag := fs.String("model", strings.TrimSpace(os.Getenv("CHEESE_MODEL")), "LLM model id passed to cheese-server (empty = server default)")
+	maxStepsFlag := fs.Int("max-steps", 0, "max agent steps (0 = from CHEESERAG_MAX_STEPS or defaults: 8 minimal, 20 full)")
+	timeoutFlag := fs.Int("timeout", 0, "total run timeout seconds (0 = CHEESERAG_TIMEOUT_SEC or 120)")
+	fullTools := fs.Bool("full-tools", false, "use full Cheesepath tool registry plus RAG (not minimal RAG-only)")
+	autonomous := fs.Bool("autonomous", false, "enable autonomous app workflow mode (full tools + local_exec)")
+	skipPreflight := fs.Bool("skip-preflight", false, "skip GET /health and /v1/models checks")
+	rawLog := fs.Bool("raw-log", false, "use low-level crabchain logs instead of friendly terminal UI")
+	reportPath := fs.String("report-json", "", "optional path to write run report JSON")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n", os.Args[0])
+		fs.PrintDefaults()
+	}
+	_ = fs.Parse(os.Args[1:])
+	goalArgs := fs.Args()
+	userGoal := strings.Join(goalArgs, " ")
+
 	llmURL := cheesebrainURL()
 	registryURL := strings.TrimSpace(os.Getenv("CHEESECRAB_REGISTRY_URL"))
 	if registryURL == "" {
 		registryURL = llmURL
 	}
-	minimalTools := os.Getenv("CHEESERAG_MINIMAL_TOOLS") != "0"
+	minimalTools := !*fullTools && !*autonomous && os.Getenv("CHEESERAG_MINIMAL_TOOLS") != "0"
+	enableExec := *autonomous || os.Getenv("CHEESERAG_ENABLE_EXEC") == "1"
 
 	var reg *tools.Registry
-	if minimalTools {
+	if *autonomous {
+		// Curated autonomous toolset: avoid unrelated default tools causing drift.
 		reg = tools.NewRegistry()
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		reg.Register(NewLocalExecTool())
+		reg.Register(NewProcStartTool())
+		reg.Register(NewProcStatusTool())
+		reg.Register(NewProcLogsTool())
+		reg.Register(NewProcStopTool())
+		reg.Register(NewProcListTool())
+		reg.Register(NewHTTPCheckTool())
+		reg.Register(NewPortCheckTool())
+	} else if minimalTools {
+		reg = tools.NewRegistry()
+		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
+		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		if enableExec {
+			reg.Register(NewLocalExecTool())
+			reg.Register(NewProcStartTool())
+			reg.Register(NewProcStatusTool())
+			reg.Register(NewProcLogsTool())
+			reg.Register(NewProcStopTool())
+			reg.Register(NewProcListTool())
+			reg.Register(NewHTTPCheckTool())
+			reg.Register(NewPortCheckTool())
+		}
 	} else {
 		reg = tools.DefaultRegistry(registryURL)
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		if enableExec {
+			reg.Register(NewLocalExecTool())
+			reg.Register(NewProcStartTool())
+			reg.Register(NewProcStatusTool())
+			reg.Register(NewProcLogsTool())
+			reg.Register(NewProcStopTool())
+			reg.Register(NewProcListTool())
+			reg.Register(NewHTTPCheckTool())
+			reg.Register(NewPortCheckTool())
+		}
 	}
 
 	maxSteps := 20
-	if v := strings.TrimSpace(os.Getenv("CHEESERAG_MAX_STEPS")); v != "" {
+	if *maxStepsFlag > 0 {
+		maxSteps = *maxStepsFlag
+	} else if v := strings.TrimSpace(os.Getenv("CHEESERAG_MAX_STEPS")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			maxSteps = n
 		}
+	} else if *autonomous {
+		maxSteps = 30
 	} else if minimalTools {
 		maxSteps = 8
 	}
 	timeoutSec := 120
-	if v := strings.TrimSpace(os.Getenv("CHEESERAG_TIMEOUT_SEC")); v != "" {
+	if *timeoutFlag > 0 {
+		timeoutSec = *timeoutFlag
+	} else if v := strings.TrimSpace(os.Getenv("CHEESERAG_TIMEOUT_SEC")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			timeoutSec = n
 		}
+	} else if *autonomous {
+		timeoutSec = 300
 	}
 
 	client := llm.NewClient(llmURL)
-	executor := agent.NewExecutor(client, reg,
+	var handler callback.Handler
+	if *rawLog {
+		handler = callback.NewLogHandler(os.Stdout)
+	} else {
+		handler = NewTerminalUIHandler(os.Stdout)
+	}
+	opts := []agent.ExecutorOption{
 		agent.WithStrategy(agent.NewReActStrategy()),
-		agent.WithCallbacks(callback.NewLogHandler(os.Stdout)),
+		agent.WithCallbacks(handler),
 		agent.WithMaxSteps(maxSteps),
-	)
+	}
+	if strings.TrimSpace(*modelFlag) != "" {
+		opts = append(opts, agent.WithModel(strings.TrimSpace(*modelFlag)))
+	}
+	executor := agent.NewExecutor(client, reg, opts...)
 
-	userGoal := strings.Join(os.Args[1:], " ")
-	// Small models often pass the literal word "query" as the JSON value; rag_retrieve substitutes from this.
 	_ = os.Setenv("CHEESERAG_USER_GOAL", userGoal)
 
 	goal := userGoal
@@ -77,21 +147,55 @@ func main() {
 			"- After rag_fetch_wikipedia succeeds, call rag_retrieve again for the same query.\n" +
 			"- Then return JSON with is_final=true and final_answer grounded on retrieved passages.\n" +
 			"- Use fallback from general knowledge only if both retrieval and web fetch fail.\n\n" + goal
+	} else if *autonomous {
+		goal = "Autonomous execution mode:\n" +
+			"- Prefer using tools to execute and verify tasks, not just reasoning.\n" +
+			"- Use local_exec for running app/dev commands and inspect outputs.\n" +
+			"- Use proc_start/proc_status/proc_logs/proc_stop/proc_list for long-running services.\n" +
+			"- Verify in this order: port_check first, then http_check.\n" +
+			"- If a check fails, inspect logs/status and retry once with corrected args.\n" +
+			"- Iterate until goal is actually complete, then return final_answer with concrete results.\n\n" + goal
 	}
 	if strings.TrimSpace(goal) == "" {
-		fmt.Fprintln(os.Stderr, "usage: cheeserag-agent <goal text>")
+		fs.Usage()
 		os.Exit(2)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
+
+	requirePreflight := minimalTools || os.Getenv("CHEESERAG_PREFLIGHT") == "1"
+	if !*skipPreflight && os.Getenv("CHEESERAG_SKIP_PREFLIGHT") != "1" && requirePreflight {
+		if err := preflightRAG(ctx, llmURL, ragFacadeURL()); err != nil {
+			fmt.Fprintf(os.Stderr, "preflight failed: %v\n(set -skip-preflight or CHEESERAG_SKIP_PREFLIGHT=1 to bypass)\n", err)
+			os.Exit(1)
+		}
+	}
+
 	events, path := executor.Run(ctx, goal)
 	for ev := range events {
 		if ev.Type == agent.EventFinalAnswer {
-			fmt.Println("Answer:", ev.Payload)
+			fmt.Println("\nAnswer:", ev.Payload)
 		}
 	}
-	fmt.Printf("Status: %s\n", path.Status)
+	steps := len(path.Steps)
+	toolCalls := 0
+	for _, st := range path.Steps {
+		toolCalls += len(st.ToolCalls)
+	}
+	dur := time.Since(path.StartedAt)
+	if path.EndedAt != nil {
+		dur = path.EndedAt.Sub(path.StartedAt)
+	}
+	fmt.Printf("\nRun summary: status=%s steps=%d tool_calls=%d duration=%s\n",
+		path.Status, steps, toolCalls, dur.Round(time.Millisecond))
+	if rp := strings.TrimSpace(*reportPath); rp != "" {
+		if err := writeRunReport(rp, path, dur, userGoal); err != nil {
+			fmt.Fprintf(os.Stderr, "report write failed: %v\n", err)
+		} else {
+			fmt.Printf("Report: %s\n", rp)
+		}
+	}
 	if path.Status != agent.PathCompleted {
 		for _, st := range path.Steps {
 			for _, tc := range st.ToolCalls {
@@ -106,4 +210,27 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Không có câu trả lời cuối: model không gửi is_final/final_answer hoặc đã hết bước.")
 		}
 	}
+}
+
+func writeRunReport(path string, p *agent.CrabPath, dur time.Duration, userGoal string) error {
+	out := map[string]any{
+		"id":         p.ID,
+		"user_goal":  userGoal,
+		"status":     p.Status,
+		"started_at": p.StartedAt,
+		"ended_at":   p.EndedAt,
+		"duration_ms": dur.Milliseconds(),
+		"steps":      p.Steps,
+		"answer":     p.Answer,
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	if dir := filepath.Dir(path); strings.TrimSpace(dir) != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(path, b, 0o644)
 }
