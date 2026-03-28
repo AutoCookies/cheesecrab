@@ -24,6 +24,9 @@ type TerminalUIHandler struct {
 	spinStop   chan struct{}
 	tokenBuf   strings.Builder
 	lastStep   int
+	Quiet      bool
+	streamingField string // "reasoning", "final_answer", or empty
+	streamedAny    bool
 }
 
 func NewTerminalUIHandler(out io.Writer) *TerminalUIHandler {
@@ -72,10 +75,13 @@ func (h *TerminalUIHandler) cyan(s string) string {
 	if !h.tty {
 		return s
 	}
-	return "\x1b[36m" + s + "\x1b[0m"
+	return "\x1b[33m" + s + "\x1b[0m" // Yellow instead of Cyan
 }
 
 func (h *TerminalUIHandler) OnStart(goal string) {
+	if h.Quiet {
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.startedAt = time.Now()
@@ -94,14 +100,12 @@ func (h *TerminalUIHandler) OnThought(step int, t callback.ThoughtEvent) {
 	h.stopSpinnerLocked()
 	h.lastStep = step
 	if t.IsFinal {
-		fmt.Fprintf(h.out, "\n%s\n", h.dim(fmt.Sprintf("[step %d] finalizing answer…", step)))
+		h.streamingField = "final_answer"
 		return
 	}
-	plan := strings.TrimSpace(t.Plan)
-	if plan == "" {
-		plan = "(thinking)"
-	}
-	fmt.Fprintf(h.out, "\n%s %s\n", h.cyan(fmt.Sprintf("[step %d]", step)), h.dim(oneLine(plan, 140)))
+	h.streamingField = "reasoning"
+	// Minimalist "thinking" vibe
+	fmt.Fprintf(h.out, "\x1b[90m• thinking\x1b[0m")
 	// Start spinner while waiting for tool calls / next thought.
 	if h.tty {
 		h.spinStop = make(chan struct{})
@@ -126,8 +130,10 @@ func (h *TerminalUIHandler) stopSpinnerLocked() {
 	if h.spinStop != nil {
 		close(h.spinStop)
 		h.spinStop = nil
-		// Small pause to let goroutine clear the line.
-		time.Sleep(10 * time.Millisecond)
+		// Clear the spinner line
+		if h.tty {
+			fmt.Fprintf(h.out, "\r\x1b[K")
+		}
 	}
 }
 
@@ -198,17 +204,33 @@ func obsPreview(obs string, n int) string {
 	return strings.Join(parts, " / ")
 }
 
-// OnToken streams LLM tokens live when a TTY is connected.
 func (h *TerminalUIHandler) OnToken(_ int, token string) {
-	if !h.tty {
+	h.mu.Lock()
+	h.stopSpinnerLocked()
+	h.tokenBuf.WriteString(token)
+	h.mu.Unlock()
+
+	if !h.tty || h.streamingField == "reasoning" {
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.stopSpinnerLocked()
-	h.tokenBuf.WriteString(token)
-	// Write immediately for streaming effect.
-	fmt.Fprint(h.out, token)
+
+	// Stream only the final_answer field content.
+	// Since we know the model uses ReAct JSON, we only want the value of "final_answer".
+	// For simplicity, we just print the token if we are in "final_answer" mode.
+	if h.streamingField == "final_answer" {
+		// Print prompt on the very first token of the final answer if not already there.
+		if !h.streamedAny {
+			fmt.Fprintf(h.out, "\n\x1b[38;5;214m cheese>\x1b[0m ")
+		}
+		// Filter out JSON boilerplate if it leaks into the stream.
+		if !strings.Contains(token, "{") && !strings.Contains(token, "}") &&
+			!strings.Contains(token, "\":") && !strings.Contains(token, ",\"") {
+			fmt.Fprint(h.out, token)
+			h.streamedAny = true
+		}
+	}
 }
 
 func (h *TerminalUIHandler) OnFinalAnswer(answer string) {
@@ -216,19 +238,15 @@ func (h *TerminalUIHandler) OnFinalAnswer(answer string) {
 	defer h.mu.Unlock()
 	h.stopSpinnerLocked()
 
-	// If tokens were streamed, clear the buffer and just print separator.
-	if h.tokenBuf.Len() > 0 {
-		h.tokenBuf.Reset()
-		fmt.Fprintf(h.out, "\n")
+	// If tokens were NOT streamed (e.g. immediate answer), print it now.
+	if !h.streamedAny && h.tty {
+		fmt.Fprintf(h.out, "\n\x1b[38;5;214m cheese>\x1b[0m %s\n", answer)
+	} else if h.streamedAny {
+		fmt.Fprintln(h.out)
 	}
-
-	// Render markdown-ish when TTY.
-	if h.tty {
-		fmt.Fprintf(h.out, "\n%s\n", h.bold("─── Answer ───"))
-		fmt.Fprintln(h.out, renderMarkdownish(answer))
-	} else {
-		fmt.Fprintf(h.out, "\nFinal answer ready.\n")
-	}
+	h.tokenBuf.Reset()
+	h.streamedAny = false
+	h.streamingField = ""
 }
 
 func (h *TerminalUIHandler) OnError(err error) {

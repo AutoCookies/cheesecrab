@@ -19,9 +19,8 @@ func NewReadFileTool() *ReadFileTool { return &ReadFileTool{} }
 func (t *ReadFileTool) Name() string      { return "read_file" }
 func (t *ReadFileTool) Dangerous() bool   { return false }
 func (t *ReadFileTool) Description() string {
-	return "Read a local file and return its text content. " +
-		"Args: path (required), start_line (optional, 1-based), end_line (optional, inclusive). " +
-		"Returns up to 200 KB of content."
+	return "Read the full text content of a local file. Use this when you need the exact content or code from a specific file. " +
+		"Args: path (required), start_line (optional), end_line (optional)."
 }
 
 func (t *ReadFileTool) Schema() map[string]any {
@@ -98,7 +97,7 @@ func NewWriteFileTool() *WriteFileTool { return &WriteFileTool{} }
 func (t *WriteFileTool) Name() string      { return "write_file" }
 func (t *WriteFileTool) Dangerous() bool   { return true }
 func (t *WriteFileTool) Description() string {
-	return "Write (create or overwrite) a local file with the given content. Args: path, content."
+	return "Create a new file or overwrite an existing one with new content. Use this to save your work, create scripts, or update project files."
 }
 
 func (t *WriteFileTool) Schema() map[string]any {
@@ -141,7 +140,8 @@ func NewListDirTool() *ListDirTool { return &ListDirTool{} }
 func (t *ListDirTool) Name() string      { return "list_dir" }
 func (t *ListDirTool) Dangerous() bool   { return false }
 func (t *ListDirTool) Description() string {
-	return "List files and subdirectories of a directory. Args: path, recursive (bool, default false)."
+	return "List files and subdirectories. Use this to explore the project structure if you don't know where a file is. " +
+		"Set recursive=true for a deep search."
 }
 
 func (t *ListDirTool) Schema() map[string]any {

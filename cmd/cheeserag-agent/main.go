@@ -43,6 +43,7 @@ func main() {
 	continueFrom := fs.String("continue", strings.TrimSpace(os.Getenv("CHEESERAG_CONTINUE_STATE")), "path to a previous state JSON to resume from (prepends prior goal as context)")
 	confirmDangerous := fs.Bool("confirm-dangerous", !isBoolEnv("CHEESERAG_AUTO_APPROVE"), "prompt [y/N] before executing dangerous tools (default true when TTY)")
 	yesAll := fs.Bool("yes", isBoolEnv("CHEESERAG_YES"), "auto-approve all dangerous tool prompts (implies --confirm-dangerous=false)")
+	quietStartup := fs.Bool("quiet-startup", false, "suppress preflight and startup banners")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -103,6 +104,8 @@ func main() {
 		reg.Register(NewListDirTool())
 		reg.Register(NewSearchFilesTool())
 		reg.Register(NewGitContextTool())
+		reg.Register(&EnvTool{})
+		reg.Register(&ProcessTool{})
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -143,7 +146,11 @@ func main() {
 	if *rawLog {
 		handler = callback.NewLogHandler(os.Stdout)
 	} else {
-		handler = NewTerminalUIHandler(os.Stdout)
+		ui := NewTerminalUIHandler(os.Stdout)
+		if *quietStartup {
+			ui.Quiet = true
+		}
+		handler = ui
 	}
 	opts := []agent.ExecutorOption{
 		agent.WithStrategy(agent.NewReActStrategy()),
@@ -160,13 +167,12 @@ func main() {
 	if p := strings.TrimSpace(os.Getenv("CHEESERAG_GOAL_PREFIX")); p != "" {
 		goalPrefix = p
 	} else if minimalTools {
-		goalPrefix = "RAG rules (tools: rag_retrieve, rag_fetch_wikipedia):\n" +
-			"- Put the user's exact question in JSON field \"query\" (not the literal word query).\n" +
-			"- You MUST call rag_retrieve first.\n" +
-			"- If rag_retrieve returns no matching chunks, call rag_fetch_wikipedia with the same query to fetch real public data.\n" +
-			"- After rag_fetch_wikipedia succeeds, call rag_retrieve again for the same query.\n" +
-			"- Then return JSON with is_final=true and final_answer grounded on retrieved passages.\n" +
-			"- Use fallback from general knowledge only if both retrieval and web fetch fail."
+		goalPrefix = "RAG & Tool Guidance:\n" +
+			"- Decide if you need tools. For greetings, general chat, or basic logic, answer DIRECTLY without tools.\n" +
+			"- For project-specific facts or code details, search local files or the PomaiDB store.\n" +
+			"- For broad public facts NOT in the project, use Wikipedia.\n" +
+			"- Use the JSON field \"query\" for tool arguments (matching the user's question, not literal placeholders).\n" +
+			"- If a tool tells you something is missing, stop searching and inform the user."
 	} else if *autonomous {
 		goalPrefix = "Autonomous execution mode:\n" +
 			"- Prefer using tools to execute and verify tasks, not just reasoning.\n" +

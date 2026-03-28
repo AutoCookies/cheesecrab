@@ -50,14 +50,13 @@ func (t *RAGFetchWikipediaTool) Name() string { return "rag_fetch_wikipedia" }
 func (t *RAGFetchWikipediaTool) Dangerous() bool { return false }
 
 func (t *RAGRetrieveTool) Description() string {
-	return "Retrieve relevant text from the local knowledge base (PomaiDB) using semantic + lexical search. " +
-		"The JSON argument \"query\" must be the user's real question (full sentence in the document language). " +
-		"Do not use the literal word \"query\" or any placeholder as the value."
+	return "Search the local PomaiDB knowledge base for domain-specific information (e.g. project docs, internal data). " +
+		"The \"query\" arg should be a full question. Use this ONLY if the query is factual and likely to be in the local store."
 }
 
 func (t *RAGFetchWikipediaTool) Description() string {
-	return "Fetch a real public summary from Wikipedia for a topic and ingest it into the local PomaiDB store. " +
-		"Use when rag_retrieve returns no matching chunks."
+	return "Fetch a summary of a topic from Wikipedia and ingest it into the local store for future retrieval. " +
+		"Use this for general public knowledge if rag_retrieve fails or if you know the topic is on Wikipedia."
 }
 
 func (t *RAGRetrieveTool) Schema() map[string]any {
