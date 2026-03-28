@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Unified Cheeserag CLI: "cheese"
+set -euo pipefail
+
+# Repo root:
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+export PATH="$ROOT/third_party/cheesebrain/build/bin:$PATH"
+
+# 1. Setup Environment
+source "$ROOT/scripts/rag_env.sh"
+
+# 2. Find Model
+MODEL_PATH="${1:-}"
+if [[ -z "$MODEL_PATH" ]]; then
+  # Auto-detect in models/
+  MODEL_PATH=$(find "$ROOT/models" -name "*.gguf" | head -n 1)
+fi
+
+if [[ -z "$MODEL_PATH" || ! -f "$MODEL_PATH" ]]; then
+  echo -e "\x1b[31mError: No GGUF model found in ./models/ and no path provided.\x1b[0m"
+  echo "Usage: ./cheese [path/to/model.gguf]"
+  exit 1
+fi
+
+echo -e "\x1b[36m[cheese] Using model: \x1b[1m$(basename "$MODEL_PATH")\x1b[0m"
+
+# 3. Cleanup on Exit
+cleanup() {
+  echo -e "\n\x1b[90m[cheese] Shutting down services...\x1b[0m"
+  [[ -n "${SERVER_PID:-}" ]] && kill "$SERVER_PID" 2>/dev/null || true
+  [[ -n "${FACADE_PID:-}" ]] && kill "$FACADE_PID" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# 4. Start Cheesebrain Server
+echo -e "\x1b[90m[cheese] Starting Cheesebrain server...\x1b[0m"
+cheese-server --embeddings --pooling mean -m "$MODEL_PATH" --port 8080 > /dev/null 2>&1 &
+SERVER_PID=$!
+
+# 5. Start RAG Facade
+echo -e "\x1b[90m[cheese] Starting RAG Facade...\x1b[0m"
+python3 -m rag_facade.server > /dev/null 2>&1 &
+FACADE_PID=$!
+
+# 6. Wait for Healthy
+echo -ne "\x1b[90m[cheese] Waiting for services to be ready...\x1b[0m"
+for i in {1..60}; do
+  # Check if facade is up
+  FACADE_OK=$(curl -s http://127.0.0.1:9090/health > /dev/null && echo "ok" || echo "no")
+  # Check if server is up AND model is loaded (no 503)
+  SERVER_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/v1/models || echo "000")
+  
+  if [[ "$FACADE_OK" == "ok" && "$SERVER_CODE" == "200" ]]; then
+    echo -e " \x1b[32mReady!\x1b[0m"
+    sleep 0.5
+    break
+  fi
+  echo -ne "\x1b[90m.\x1b[0m"
+  sleep 1
+  if [[ $i -eq 60 ]]; then
+    echo -e " \x1b[31mTimed out (model still loading or error).\x1b[0m"
+    exit 1
+  fi
+done
+
+# 7. Start Agent REPL
+# Using the pre-built binary for lowest latency.
+exec "$ROOT/build/cheeserag-agent" --chat --quiet-startup
