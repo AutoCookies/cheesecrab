@@ -73,6 +73,7 @@ func main() {
 		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
 		reg.Register(tools.NewRunPythonTestTool())
 		reg.Register(tools.NewRunGoTestTool())
+		reg.Register(tools.NewRunLinterTool())
 		reg.Register(wrap(NewLocalExecTool(), autoApprove))
 		reg.Register(wrap(NewProcStartTool(), autoApprove))
 		reg.Register(NewProcStatusTool())
@@ -94,6 +95,7 @@ func main() {
 		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
 		reg.Register(tools.NewRunPythonTestTool())
 		reg.Register(tools.NewRunGoTestTool())
+		reg.Register(tools.NewRunLinterTool())
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -112,6 +114,7 @@ func main() {
 		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
 		reg.Register(tools.NewRunPythonTestTool())
 		reg.Register(tools.NewRunGoTestTool())
+		reg.Register(tools.NewRunLinterTool())
 		reg.Register(NewReadFileTool())
 		reg.Register(wrap(NewWriteFileTool(), autoApprove))
 		reg.Register(NewListDirTool())

@@ -12,11 +12,13 @@ import (
 
 	"github.com/AutoCookies/crabpath/agent"
 	"github.com/AutoCookies/crabpath/callback"
+	"github.com/AutoCookies/crabpath/llm"
 )
 
 // chatHistory stores previous Q&A pairs for multi-turn context.
 type chatHistory struct {
 	turns []chatTurn
+	pins  map[string]string // filepath -> content
 	maxN  int
 }
 
@@ -27,16 +29,43 @@ type chatTurn struct {
 
 func (h *chatHistory) add(goal, answer string) {
 	h.turns = append(h.turns, chatTurn{goal: goal, answer: answer})
-	if h.maxN > 0 && len(h.turns) > h.maxN {
-		h.turns = h.turns[len(h.turns)-h.maxN:]
+}
+
+func (h *chatHistory) digest(ctx context.Context, client *llm.Client) {
+	if len(h.turns) < 12 {
+		return
 	}
+	fmt.Printf("\x1b[90m[cheese] Cheesepress: Compressing conversation context...\x1b[0m\n")
+	
+	var sb strings.Builder
+	req := llm.Request{
+		Messages: []llm.Message{
+			{Role: "user", Content: sb.String()},
+		},
+	}
+	
+	summary, err := client.Complete(ctx, req)
+	if err != nil {
+		return
+	}
+	
+	// Replace first 5 turns with one digest turn
+	newTurns := []chatTurn{{goal: "[Memory Digest]", answer: summary}}
+	newTurns = append(newTurns, h.turns[5:]...)
+	h.turns = newTurns
 }
 
 func (h *chatHistory) buildContext() string {
-	if len(h.turns) == 0 {
-		return ""
-	}
 	var sb strings.Builder
+	if len(h.pins) > 0 {
+		sb.WriteString("Pinned Context:\n")
+		for path, content := range h.pins {
+			sb.WriteString(fmt.Sprintf("--- File: %s ---\n%s\n---\n\n", path, content))
+		}
+	}
+	if len(h.turns) == 0 {
+		return sb.String()
+	}
 	sb.WriteString("Conversation history (most recent first):\n")
 	for i := len(h.turns) - 1; i >= 0; i-- {
 		t := h.turns[i]
@@ -47,7 +76,7 @@ func (h *chatHistory) buildContext() string {
 
 // runChatMode runs the interactive REPL. Called from main when --chat is set.
 func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int) {
-	history := &chatHistory{maxN: 20}
+	history := &chatHistory{maxN: 20, pins: make(map[string]string)}
 	loadPersonalHistory(history)
 	sc := bufio.NewScanner(os.Stdin)
 
@@ -149,6 +178,31 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				}
 			}
 			continue
+		case "/pin":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Println("\x1b[31mUsage: /pin <file_path>\x1b[0m")
+				continue
+			}
+			path := fields[1]
+			b, err := os.ReadFile(path)
+			if err != nil {
+				fmt.Printf("\x1b[31mError reading file: %v\x1b[0m\n", err)
+			} else {
+				history.pins[path] = string(b)
+				fmt.Printf("\x1b[32mPinned %s to session context.\x1b[0m\n", path)
+			}
+			continue
+		case "/unpin":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Println("\x1b[31mUsage: /unpin <file_path>\x1b[0m")
+				continue
+			}
+			path := fields[1]
+			delete(history.pins, path)
+			fmt.Printf("\x1b[32mUnpinned %s.\x1b[0m\n", path)
+			continue
 		}
 
 		// Build goal with history context
@@ -168,6 +222,7 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 		cancel()
 
 		history.add(input, answer)
+		history.digest(context.Background(), executor.Client())
 		savePersonalHistory(history)
 	}
 }
@@ -235,7 +290,10 @@ func printChatHelp() {
 	fmt.Println("  /clear     Clear conversation history")
 	fmt.Println("  /history   Show conversation history")
 	fmt.Println("  /ingest    Native file ingestion (e.g. /ingest /path/to/file.pdf)")
-	fmt.Println("  /tools     (run the agent and ask it to list its tools)")
+	fmt.Println("  /diff      Show current git uncommitted changes")
+	fmt.Println("  /map       List AST-indexed files in workspace")
+	fmt.Println("  /pin       Pin a file to session context (e.g. /pin main.go)")
+	fmt.Println("  /unpin     Remove a file from session context")
 	fmt.Println()
 	fmt.Println("Multi-line input: end a line with \\ to continue.")
 	fmt.Println()
