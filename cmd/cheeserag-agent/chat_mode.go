@@ -116,6 +116,22 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				}
 			}
 			continue
+		case "/ingest":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Println("\x1b[31mUsage: /ingest <absolute_file_path>\x1b[0m")
+				continue
+			}
+			path := strings.TrimSpace(strings.Join(fields[1:], " "))
+			fmt.Printf("\x1b[36m[cheese] Native Ingestion into PomaiDB...\x1b[0m\n")
+			tool := NewRAGIngestTool(ragFacadeURL())
+			res, err := tool.Execute(context.Background(), map[string]any{"query": path})
+			if err != nil {
+				fmt.Printf("\x1b[31mError: %v\x1b[0m\n", err)
+			} else {
+				fmt.Printf("\x1b[32m%s\x1b[0m\n", res)
+			}
+			continue
 		}
 
 		// Build goal with history context
@@ -201,6 +217,7 @@ func printChatHelp() {
 	fmt.Println("  /exit      Exit chat mode")
 	fmt.Println("  /clear     Clear conversation history")
 	fmt.Println("  /history   Show conversation history")
+	fmt.Println("  /ingest    Native file ingestion (e.g. /ingest /path/to/file.pdf)")
 	fmt.Println("  /tools     (run the agent and ask it to list its tools)")
 	fmt.Println()
 	fmt.Println("Multi-line input: end a line with \\ to continue.")
@@ -249,7 +266,7 @@ func readInputWithSuggestions(prompt string) string {
 
 		if len(input) == 0 && b == '/' && !suggestionsShown {
 			fmt.Print("/")
-			fmt.Print("\x1b[90m (help, exit, history, clear, tools)\x1b[0m\x1b[G")
+			fmt.Print("\x1b[90m (ingest, help, exit, history, clear, tools)\x1b[0m\x1b[G")
 			fmt.Print(prompt + "/")
 			input = append(input, '/')
 			suggestionsShown = true

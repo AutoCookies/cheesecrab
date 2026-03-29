@@ -67,7 +67,6 @@ func main() {
 	if *autonomous {
 		reg = tools.NewRegistry()
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
-		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
 		reg.Register(wrap(NewLocalExecTool(), autoApprove))
 		reg.Register(wrap(NewProcStartTool(), autoApprove))
 		reg.Register(NewProcStatusTool())
@@ -84,7 +83,6 @@ func main() {
 	} else if minimalTools {
 		reg = tools.NewRegistry()
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
-		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -98,7 +96,6 @@ func main() {
 	} else {
 		reg = tools.DefaultRegistry(registryURL)
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
-		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
 		reg.Register(NewReadFileTool())
 		reg.Register(wrap(NewWriteFileTool(), autoApprove))
 		reg.Register(NewListDirTool())
@@ -169,8 +166,7 @@ func main() {
 	} else if minimalTools {
 		goalPrefix = "RAG & Tool Guidance:\n" +
 			"- Decide if you need tools. For greetings, general chat, or basic logic, answer DIRECTLY without tools.\n" +
-			"- For project-specific facts or code details, search local files or the PomaiDB store.\n" +
-			"- For broad public facts NOT in the project, use Wikipedia.\n" +
+			"- CRITICAL: To ANSWER QUESTIONS based on the database or ingested documents, ALWAYS use the rag_retrieve tool.\n" +
 			"- Use the JSON field \"query\" for tool arguments (matching the user's question, not literal placeholders).\n" +
 			"- If a tool tells you something is missing, stop searching and inform the user."
 	} else if *autonomous {

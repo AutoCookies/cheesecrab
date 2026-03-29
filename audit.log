@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-29T06:39:32.849758Z", "action": "INGEST", "details": {"doc_id": 123, "chunks_added": 19, "bytes_processed": 8319}}
+{"timestamp": "2026-03-29T06:40:44.603548Z", "action": "INGEST", "details": {"doc_id": 123, "chunks_added": 19, "bytes_processed": 8319}}

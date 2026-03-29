@@ -1,2 +1,10 @@
-# RAG facade uses the Python standard library only.
-# Build PomaiDB and set POMAI_C_LIB to libpomai_c.so; add third_party/pomaidb/python to PYTHONPATH (see README).
+# Cheeserag Production Dependencies
+fastapi>=0.111.0
+uvicorn>=0.30.1
+pydantic>=2.7.4
+requests>=2.32.3
+PyMuPDF>=1.24.5
+loguru>=0.7.2
+prometheus-client>=0.20.0
+streamlit>=1.35.0
+python-multipart>=0.0.9
