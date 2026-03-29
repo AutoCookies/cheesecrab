@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -70,6 +71,8 @@ func main() {
 		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
+		reg.Register(tools.NewRunPythonTestTool())
+		reg.Register(tools.NewRunGoTestTool())
 		reg.Register(wrap(NewLocalExecTool(), autoApprove))
 		reg.Register(wrap(NewProcStartTool(), autoApprove))
 		reg.Register(NewProcStatusTool())
@@ -89,6 +92,8 @@ func main() {
 		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
+		reg.Register(tools.NewRunPythonTestTool())
+		reg.Register(tools.NewRunGoTestTool())
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -105,6 +110,8 @@ func main() {
 		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
 		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
+		reg.Register(tools.NewRunPythonTestTool())
+		reg.Register(tools.NewRunGoTestTool())
 		reg.Register(NewReadFileTool())
 		reg.Register(wrap(NewWriteFileTool(), autoApprove))
 		reg.Register(NewListDirTool())
@@ -193,6 +200,8 @@ func main() {
 		goalPrefix = "You have access to filesystem tools (read_file, write_file, list_dir, search_files) " +
 			"and git_context to understand and modify the codebase. Use them proactively."
 	}
+	
+	goalPrefix += ambientWorkspaceContext()
 
 	// --continue: prepend prior goal/answer as context.
 	if *continueFrom != "" {
@@ -468,4 +477,13 @@ func inferStopReason(p *agent.CrabPath, failedToolCalls int) string {
 	default:
 		return "unknown"
 	}
+}
+
+func ambientWorkspaceContext() string {
+	cmd := exec.Command("git", "status", "-s")
+	out, err := cmd.Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return ""
+	}
+	return "\n\n[Active Workspace Context - Uncommitted Changes]\n" + string(out) + "\n"
 }

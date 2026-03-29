@@ -132,6 +132,23 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				fmt.Printf("\x1b[32m%s\x1b[0m\n", res)
 			}
 			continue
+		case "/diff":
+			fmt.Printf("\x1b[36m[cheese] Current Workspace Diffs:\x1b[0m\n")
+			cmd := exec.Command("git", "diff", "--stat")
+			out, _ := cmd.CombinedOutput()
+			fmt.Println(string(out))
+			continue
+		case "/map":
+			fmt.Printf("\x1b[36m[cheese] Codebase Map (AST-indexed files):\x1b[0m\n")
+			cmd := exec.Command("git", "ls-files")
+			out, _ := cmd.CombinedOutput()
+			lines := strings.Split(string(out), "\n")
+			for _, l := range lines {
+				if strings.HasSuffix(l, ".go") || strings.HasSuffix(l, ".py") || strings.HasSuffix(l, ".cpp") || strings.HasSuffix(l, ".h") {
+					fmt.Printf("  📄 %s\n", l)
+				}
+			}
+			continue
 		}
 
 		// Build goal with history context

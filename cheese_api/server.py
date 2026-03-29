@@ -112,6 +112,9 @@ class RetrieveRequest(BaseModel):
     min_score: float = 0.0
     membrane: str | None = None
 
+class IndexFileRequest(BaseModel):
+    filepath: str
+
 @app.get("/health")
 def health_check():
     return {
@@ -249,6 +252,40 @@ def index_workspace(req: Request):
             total_added += 1
             
     logger.success(f"Workspace indexed! {total_added} AST chunks embedded.")
+    return {"status": "ok", "code_blocks_indexed": total_added}
+
+@app.post("/v1/index_file")
+def index_file(req: Request, payload: IndexFileRequest):
+    """AST-indexes a single file into the workspace_code membrane."""
+    _check_api_key(req)
+    _ensure_db()
+    
+    membrane = "workspace_code"
+    _ensure_membrane(membrane)
+    
+    chunks = index_single_file(payload.filepath)
+    if not chunks:
+        return {"status": "ok", "code_blocks_indexed": 0}
+        
+    doc_id = int(os.environ.get("WORKSPACE_DOC_ID", "999"))
+    total_added = 0
+    with _db_lock:
+        global _next_chunk_i
+        for text_piece in chunks:
+            words = text_piece.lower().split()
+            token_ids = []
+            for w in words[:48]:
+                digest = hashlib.sha1(w.encode("utf-8")).digest()
+                token_ids.append(int.from_bytes(digest[:4], "little"))
+            if not token_ids:
+                token_ids = [0]
+            v = fetch_embedding(text_piece)
+            _next_chunk_i += 1
+            cid = int((int(doc_id) << 20) + _next_chunk_i)
+            put_chunk_with_text(_db, membrane, cid, doc_id, token_ids, v, text_piece)
+            total_added += 1
+            
+    logger.success(f"File {payload.filepath} indexed! {total_added} AST chunks embedded.")
     return {"status": "ok", "code_blocks_indexed": total_added}
 
 if __name__ == "__main__":

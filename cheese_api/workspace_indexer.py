@@ -78,3 +78,20 @@ def index_project_workspace(root_dir: str) -> List[str]:
             except Exception:
                 continue
     return [text for _, text in all_chunks]
+
+def index_single_file(filepath: str) -> List[str]:
+    """Extracts AST chunks from a single specific file."""
+    if not os.path.exists(filepath):
+        return []
+    try:
+        with open(filepath, "r", encoding="utf-8") as file:
+            code = file.read()
+        if filepath.endswith(".py"):
+            return [text for _, text in extract_python_chunks(filepath, code)]
+        elif filepath.endswith(".go"):
+            return [text for _, text in extract_regex_chunks(filepath, code, "go")]
+        elif filepath.endswith((".cpp", ".c", ".h")):
+            return [text for _, text in extract_regex_chunks(filepath, code, "cpp")]
+    except Exception as e:
+        logger.error(f"Failed to single-index {filepath}: {e}")
+    return []
