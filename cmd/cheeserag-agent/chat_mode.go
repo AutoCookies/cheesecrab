@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"net/http"
 	"strings"
 	"time"
 
@@ -202,6 +203,34 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 			path := fields[1]
 			delete(history.pins, path)
 			fmt.Printf("\x1b[32mUnpinned %s.\x1b[0m\n", path)
+			continue
+		case "/graph":
+			fmt.Printf("\x1b[36m[cheese] Generating Semantic Architecture Graph...\x1b[0m\n")
+			req, _ := http.NewRequest("GET", ragFacadeURL()+"/v1/map_symbols", nil)
+			req.Header.Set("X-API-Key", os.Getenv("CHEESE_API_KEY"))
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				fmt.Printf("\x1b[31mid map error: %v\x1b[0m\n", err)
+				continue
+			}
+			defer resp.Body.Close()
+			var symbolMap map[string][]string
+			json.NewDecoder(resp.Body).Decode(&symbolMap)
+
+			fmt.Println("\n\x1b[1mMermaid Architecture Chart:\x1b[0m")
+			fmt.Println("```mermaid")
+			fmt.Println("classDiagram")
+			for file, symbols := range symbolMap {
+				base := strings.Split(file, "/")
+				filename := base[len(base)-1]
+				filename = strings.ReplaceAll(filename, ".", "_")
+				fmt.Printf("    class %s {\n", filename)
+				for _, s := range symbols {
+					fmt.Printf("        +%s()\n", s)
+				}
+				fmt.Println("    }")
+			}
+			fmt.Println("```\n")
 			continue
 		}
 

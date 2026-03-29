@@ -45,6 +45,7 @@ func main() {
 	confirmDangerous := fs.Bool("confirm-dangerous", !isBoolEnv("CHEESERAG_AUTO_APPROVE"), "prompt [y/N] before executing dangerous tools (default true when TTY)")
 	yesAll := fs.Bool("yes", isBoolEnv("CHEESERAG_YES"), "auto-approve all dangerous tool prompts (implies --confirm-dangerous=false)")
 	quietStartup := fs.Bool("quiet-startup", false, "suppress preflight and startup banners")
+	architect := fs.Bool("architect", false, "use design-first Architect strategy (forces implementation planning)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -168,8 +169,14 @@ func main() {
 		}
 		handler = ui
 	}
+
+	var strat agent.Strategy = agent.NewReActStrategy()
+	if *architect {
+		strat = agent.NewArchitectStrategy()
+	}
+
 	opts := []agent.ExecutorOption{
-		agent.WithStrategy(agent.NewReActStrategy()),
+		agent.WithStrategy(strat),
 		agent.WithCallbacks(handler),
 		agent.WithMaxSteps(maxSteps),
 	}

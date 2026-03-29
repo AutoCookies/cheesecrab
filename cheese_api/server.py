@@ -24,7 +24,7 @@ import pomaidb
 from .embeddings import fetch_embedding, resolve_embedding_dim
 from .pomaidb_extra import put_chunk_with_text
 from .ingestion import process_and_ingest, parse_pdf_bytes
-from .workspace_indexer import index_project_workspace
+from .workspace_indexer import index_project_workspace, index_single_file, get_symbol_map
 
 # Security Configuration
 API_KEY_NAME = "X-API-Key"
@@ -287,6 +287,12 @@ def index_file(req: Request, payload: IndexFileRequest):
             
     logger.success(f"File {payload.filepath} indexed! {total_added} AST chunks embedded.")
     return {"status": "ok", "code_blocks_indexed": total_added}
+
+@app.get("/v1/map_symbols")
+def map_symbols(req: Request):
+    """Returns a high-level symbol map of the entire workspace."""
+    _check_api_key(req)
+    return get_symbol_map(".")
 
 if __name__ == "__main__":
     host = os.environ.get("RAG_FACADE_HOST", "127.0.0.1")
