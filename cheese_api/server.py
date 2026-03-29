@@ -24,6 +24,7 @@ import pomaidb
 from .embeddings import fetch_embedding, resolve_embedding_dim
 from .pomaidb_extra import put_chunk_with_text
 from .ingestion import process_and_ingest, parse_pdf_bytes
+from .workspace_indexer import index_project_workspace
 
 # Security Configuration
 API_KEY_NAME = "X-API-Key"
@@ -109,6 +110,7 @@ class RetrieveRequest(BaseModel):
     query: str
     top_k: int = 5
     min_score: float = 0.0
+    membrane: str | None = None
 
 @app.get("/health")
 def health_check():
@@ -130,7 +132,7 @@ def retrieve(req: RetrieveRequest, api_key: str = Depends(get_api_key)):
     start_t = time.time()
     cheese = os.environ.get("CHEESEBRAIN_URL", "http://127.0.0.1:8080").strip()
     emb_model = os.environ.get("CHEESE_EMBEDDING_MODEL", "").strip()
-    membrane = os.environ.get("RAG_MEMBRANE", "rag").strip() or "rag"
+    membrane = req.membrane or os.environ.get("RAG_MEMBRANE", "rag").strip() or "rag"
 
     logger.info(f"Retrieving for query: {req.query[:50]}...")
     v = fetch_embedding(cheese.rstrip("/"), req.query, model=emb_model)
@@ -209,6 +211,45 @@ async def ingest(
     logger.success(f"Successfully ingested doc_id {doc_id} into {total_added} chunks.")
     audit_log("INGEST", {"doc_id": doc_id, "chunks_added": total_added, "bytes_processed": len(content)})
     return {"status": "ok", "chunks_added": total_added, "doc_id": doc_id}
+
+@app.post("/v1/index_workspace")
+def index_workspace(req: Request):
+    """AST-indexes the entire active workspace into the workspace_code membrane."""
+    _check_api_key(req)
+    _ensure_db()
+    
+    membrane = "workspace_code"
+    _ensure_membrane(membrane)
+    
+    logger.info("Starting AST workspace indexing...")
+    chunks = index_project_workspace(".")
+    logger.info(f"Extracted {len(chunks)} code blocks. Vectorizing...")
+    
+    doc_id = int(os.environ.get("WORKSPACE_DOC_ID", "999"))
+    total_added = 0
+    
+    with _db_lock:
+        global _next_chunk_i
+        for text_piece in chunks:
+            # Simple token hash
+            words = text_piece.lower().split()
+            token_ids = []
+            for w in words[:48]:
+                digest = hashlib.sha1(w.encode("utf-8")).digest()
+                token_ids.append(int.from_bytes(digest[:4], "little"))
+            if not token_ids:
+                token_ids = [0]
+                
+            v = fetch_embedding(text_piece)
+            
+            _next_chunk_i += 1
+            cid = int((int(doc_id) << 20) + _next_chunk_i)
+            
+            put_chunk_with_text(_db, membrane, cid, doc_id, token_ids, v, text_piece)
+            total_added += 1
+            
+    logger.success(f"Workspace indexed! {total_added} AST chunks embedded.")
+    return {"status": "ok", "code_blocks_indexed": total_added}
 
 if __name__ == "__main__":
     host = os.environ.get("RAG_FACADE_HOST", "127.0.0.1")

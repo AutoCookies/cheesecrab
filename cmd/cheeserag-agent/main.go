@@ -66,7 +66,10 @@ func main() {
 	var reg *tools.Registry
 	if *autonomous {
 		reg = tools.NewRegistry()
+		reg.Register(NewTaskBoundaryTool())
+		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
+		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
 		reg.Register(wrap(NewLocalExecTool(), autoApprove))
 		reg.Register(wrap(NewProcStartTool(), autoApprove))
 		reg.Register(NewProcStatusTool())
@@ -82,7 +85,10 @@ func main() {
 		reg.Register(NewGitContextTool())
 	} else if minimalTools {
 		reg = tools.NewRegistry()
+		reg.Register(NewTaskBoundaryTool())
+		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
+		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -95,7 +101,10 @@ func main() {
 		}
 	} else {
 		reg = tools.DefaultRegistry(registryURL)
+		reg.Register(NewTaskBoundaryTool())
+		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
+		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
 		reg.Register(NewReadFileTool())
 		reg.Register(wrap(NewWriteFileTool(), autoApprove))
 		reg.Register(NewListDirTool())
@@ -167,6 +176,7 @@ func main() {
 		goalPrefix = "RAG & Tool Guidance:\n" +
 			"- Decide if you need tools. For greetings, general chat, or basic logic, answer DIRECTLY without tools.\n" +
 			"- CRITICAL: To ANSWER QUESTIONS based on the database or ingested documents, ALWAYS use the rag_retrieve tool.\n" +
+			"- CRITICAL: To SEARCH THE CODEBASE semantically (e.g. finding functions, logic), ALWAYS use the rag_retrieve_code tool.\n" +
 			"- Use the JSON field \"query\" for tool arguments (matching the user's question, not literal placeholders).\n" +
 			"- If a tool tells you something is missing, stop searching and inform the user."
 	} else if *autonomous {
