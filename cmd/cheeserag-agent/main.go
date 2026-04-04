@@ -52,6 +52,8 @@ func main() {
 	architect := fs.Bool("architect", false, "use design-first Architect strategy (forces implementation planning) [deprecated: use --strategy architect]")
 	strategyFlag := fs.String("strategy", strings.TrimSpace(os.Getenv("CHEESERAG_STRATEGY")), "agent strategy: react (default), reflect, planexec, architect, fnagent")
 	memoryFlag := fs.String("memory", strings.TrimSpace(os.Getenv("CHEESERAG_MEMORY")), "memory type: buffer (default), file, vector")
+	metricsFlag := fs.Bool("metrics", false, "print token estimate, step count, and timing summary after each run")
+	jsonLogFlag := fs.String("json-log", "", "path to write NDJSON event log (one JSON object per line per event)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -94,6 +96,8 @@ func main() {
 		reg.Register(NewListDirTool())
 		reg.Register(NewSearchFilesTool())
 		reg.Register(NewGitContextTool())
+		reg.Register(NewRAGIngestTool(ragFacadeURL()))
+		reg.Register(wrap(NewBatchEditTool(), autoApprove))
 	} else if minimalTools {
 		reg = tools.NewRegistry()
 		reg.Register(NewTaskBoundaryTool())
@@ -136,6 +140,8 @@ func main() {
 		reg.Register(tools.NewGrepInFilesTool())
 		reg.Register(tools.NewJSONQueryTool())
 		reg.Register(tools.NewWebFetchTool())
+		reg.Register(NewRAGIngestTool(ragFacadeURL()))
+		reg.Register(wrap(NewBatchEditTool(), autoApprove))
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -181,6 +187,7 @@ func main() {
 		reg.Register(NewSubAgentTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
 	}
 
+	var metricsHandler *callback.MetricsHandler
 	var handler callback.Handler
 	if *rawLog {
 		handler = callback.NewLogHandler(os.Stdout)
@@ -190,6 +197,18 @@ func main() {
 			ui.Quiet = true
 		}
 		handler = ui
+	}
+	if *metricsFlag {
+		metricsHandler = callback.NewMetricsHandler()
+		handler = callback.MultiHandler{handler, metricsHandler}
+	}
+	if jl := strings.TrimSpace(*jsonLogFlag); jl != "" {
+		f, err := os.OpenFile(jl, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot open json-log %s: %v\n", jl, err)
+		} else {
+			handler = callback.MultiHandler{handler, callback.NewJSONLogHandler(f)}
+		}
 	}
 
 	// Resolve strategy: --strategy flag takes precedence over legacy --architect.
@@ -319,6 +338,11 @@ func main() {
 	}
 	fmt.Printf("\nRun summary: status=%s steps=%d tool_calls=%d duration=%s\n",
 		path.Status, steps, toolCalls, dur.Round(time.Millisecond))
+	if metricsHandler != nil {
+		m := metricsHandler.Snapshot()
+		fmt.Printf("Metrics:     tokens≈%d tool_calls=%d total_duration=%s\n",
+			m.TotalTokens, m.ToolCallCount, m.TotalDuration.Round(time.Millisecond))
+	}
 	if rp := strings.TrimSpace(*reportPath); rp != "" {
 		if err := writeRunReport(rp, path, dur, userGoal); err != nil {
 			fmt.Fprintf(os.Stderr, "report write failed: %v\n", err)

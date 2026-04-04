@@ -43,7 +43,7 @@ func (t *SubAgentTool) Schema() map[string]any {
 			"strategy": map[string]any{
 				"type":        "string",
 				"description": "Agent strategy: react (default), reflect, planexec, architect",
-				"enum":        []string{"react", "reflect", "planexec", "architect"},
+				"enum":        []string{"react", "reflect", "planexec", "architect", "fnagent"},
 			},
 		},
 		"required": []string{"goal"},
@@ -95,6 +95,8 @@ func pickStrategy(name string) agent.Strategy {
 		return agent.NewPlanAndExecuteStrategy()
 	case "architect":
 		return agent.NewArchitectStrategy()
+	case "fnagent", "function_calling":
+		return agent.NewFunctionCallingStrategy()
 	default:
 		return agent.NewReActStrategy()
 	}

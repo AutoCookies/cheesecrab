@@ -223,6 +223,42 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 			executor.SetMemory(mem)
 			fmt.Printf("\x1b[32m[cheese] Memory switched to: %s\x1b[0m\n", strings.ToLower(fields[1]))
 			continue
+		case "/tools":
+			all := executor.Registry().All()
+			fmt.Printf("\x1b[1mRegistered tools (%d):\x1b[0m\n", len(all))
+			for i, t := range all {
+				danger := ""
+				if t.Dangerous() {
+					danger = " \x1b[31m⚠\x1b[0m"
+				}
+				desc := t.Description()
+				if len(desc) > 70 {
+					desc = desc[:67] + "..."
+				}
+				fmt.Printf("  [%02d] %-22s%s  %s\n", i+1, t.Name(), danger, desc)
+			}
+			continue
+		case "/model":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Printf("\x1b[90m[cheese] Current model: %s\x1b[0m\n", executor.Model())
+				continue
+			}
+			executor.SetModel(fields[1])
+			fmt.Printf("\x1b[32m[cheese] Model switched to: %s\x1b[0m\n", fields[1])
+			continue
+		case "/save":
+			fields := strings.Fields(input)
+			savePath := fmt.Sprintf("cheeserag-chat-%d.md", time.Now().Unix())
+			if len(fields) >= 2 {
+				savePath = fields[1]
+			}
+			if err := saveChatToFile(savePath, history); err != nil {
+				fmt.Printf("\x1b[31mError saving: %v\x1b[0m\n", err)
+			} else {
+				fmt.Printf("\x1b[32m[cheese] Saved to: %s\x1b[0m\n", savePath)
+			}
+			continue
 		case "/graph":
 			fmt.Printf("\x1b[36m[cheese] Generating Semantic Architecture Graph...\x1b[0m\n")
 			req, _ := http.NewRequest("GET", ragFacadeURL()+"/v1/map_symbols", nil)
@@ -331,6 +367,19 @@ func runOneTurn(ctx context.Context, executor *agent.Executor, goal string) stri
 	return answer
 }
 
+func saveChatToFile(path string, history *chatHistory) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "# Cheeserag Chat — %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
+	for i, t := range history.turns {
+		fmt.Fprintf(f, "## Turn %d\n\n**User:** %s\n\n**Assistant:** %s\n\n---\n\n", i+1, t.goal, t.answer)
+	}
+	return nil
+}
+
 func printChatHelp() {
 	fmt.Println("\x1b[1mCheeserag Chat Commands:\x1b[0m")
 	fmt.Println("  /help                Show this help")
@@ -347,6 +396,9 @@ func printChatHelp() {
 	fmt.Println("                         react (default), reflect, planexec, architect, fnagent")
 	fmt.Println("  /memory <type>       Switch memory type at runtime")
 	fmt.Println("                         buffer (default), file, vector")
+	fmt.Println("  /tools               List all registered tools (⚠ = dangerous)")
+	fmt.Println("  /model [name]        Show or switch the LLM model at runtime")
+	fmt.Println("  /save [path]         Save conversation to a markdown file")
 	fmt.Println()
 	fmt.Println("Multi-line input: end a line with \\ to continue.")
 	fmt.Println()

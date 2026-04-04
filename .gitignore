@@ -3,7 +3,7 @@ models/*.gguf
 
 # Compiled binaries
 build/
-cheeserag-agent
+/cheeserag-agent
 
 # Python virtual environment
 .venv/
