@@ -204,6 +204,25 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 			delete(history.pins, path)
 			fmt.Printf("\x1b[32mUnpinned %s.\x1b[0m\n", path)
 			continue
+		case "/strategy":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Println("\x1b[31mUsage: /strategy <react|reflect|planexec|architect|fnagent>\x1b[0m")
+				continue
+			}
+			executor.SetStrategy(pickStrategy(fields[1]))
+			fmt.Printf("\x1b[32m[cheese] Strategy switched to: %s\x1b[0m\n", strings.ToLower(fields[1]))
+			continue
+		case "/memory":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Println("\x1b[31mUsage: /memory <buffer|file|vector>\x1b[0m")
+				continue
+			}
+			mem := buildMemory(fields[1], executor.Client())
+			executor.SetMemory(mem)
+			fmt.Printf("\x1b[32m[cheese] Memory switched to: %s\x1b[0m\n", strings.ToLower(fields[1]))
+			continue
 		case "/graph":
 			fmt.Printf("\x1b[36m[cheese] Generating Semantic Architecture Graph...\x1b[0m\n")
 			req, _ := http.NewRequest("GET", ragFacadeURL()+"/v1/map_symbols", nil)
@@ -314,15 +333,20 @@ func runOneTurn(ctx context.Context, executor *agent.Executor, goal string) stri
 
 func printChatHelp() {
 	fmt.Println("\x1b[1mCheeserag Chat Commands:\x1b[0m")
-	fmt.Println("  /help      Show this help")
-	fmt.Println("  /exit      Exit chat mode")
-	fmt.Println("  /clear     Clear conversation history")
-	fmt.Println("  /history   Show conversation history")
-	fmt.Println("  /ingest    Native file ingestion (e.g. /ingest /path/to/file.pdf)")
-	fmt.Println("  /diff      Show current git uncommitted changes")
-	fmt.Println("  /map       List AST-indexed files in workspace")
-	fmt.Println("  /pin       Pin a file to session context (e.g. /pin main.go)")
-	fmt.Println("  /unpin     Remove a file from session context")
+	fmt.Println("  /help                Show this help")
+	fmt.Println("  /exit                Exit chat mode")
+	fmt.Println("  /clear               Clear conversation history")
+	fmt.Println("  /history             Show conversation history")
+	fmt.Println("  /ingest <file>       Native file ingestion")
+	fmt.Println("  /diff                Show current git uncommitted changes")
+	fmt.Println("  /map                 List AST-indexed files in workspace")
+	fmt.Println("  /graph               Generate semantic architecture Mermaid graph")
+	fmt.Println("  /pin <file>          Pin a file to session context")
+	fmt.Println("  /unpin <file>        Remove a file from session context")
+	fmt.Println("  /strategy <name>     Switch agent strategy at runtime")
+	fmt.Println("                         react (default), reflect, planexec, architect, fnagent")
+	fmt.Println("  /memory <type>       Switch memory type at runtime")
+	fmt.Println("                         buffer (default), file, vector")
 	fmt.Println()
 	fmt.Println("Multi-line input: end a line with \\ to continue.")
 	fmt.Println()

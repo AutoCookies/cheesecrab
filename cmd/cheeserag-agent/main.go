@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -17,6 +20,7 @@ import (
 	"github.com/AutoCookies/crabpath/agent"
 	"github.com/AutoCookies/crabpath/callback"
 	"github.com/AutoCookies/crabpath/llm"
+	"github.com/AutoCookies/crabpath/memory"
 	"github.com/AutoCookies/crabpath/tools"
 )
 
@@ -45,7 +49,9 @@ func main() {
 	confirmDangerous := fs.Bool("confirm-dangerous", !isBoolEnv("CHEESERAG_AUTO_APPROVE"), "prompt [y/N] before executing dangerous tools (default true when TTY)")
 	yesAll := fs.Bool("yes", isBoolEnv("CHEESERAG_YES"), "auto-approve all dangerous tool prompts (implies --confirm-dangerous=false)")
 	quietStartup := fs.Bool("quiet-startup", false, "suppress preflight and startup banners")
-	architect := fs.Bool("architect", false, "use design-first Architect strategy (forces implementation planning)")
+	architect := fs.Bool("architect", false, "use design-first Architect strategy (forces implementation planning) [deprecated: use --strategy architect]")
+	strategyFlag := fs.String("strategy", strings.TrimSpace(os.Getenv("CHEESERAG_STRATEGY")), "agent strategy: react (default), reflect, planexec, architect, fnagent")
+	memoryFlag := fs.String("memory", strings.TrimSpace(os.Getenv("CHEESERAG_MEMORY")), "memory type: buffer (default), file, vector")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -108,7 +114,9 @@ func main() {
 			reg.Register(NewPortCheckTool())
 		}
 	} else {
-		reg = tools.DefaultRegistry(registryURL)
+		// Full-tools mode: start from a clean registry and manually compose the tool set,
+		// mixing cheeserag-specific tools (with confirmation wrappers) and cheesepath extended tools.
+		reg = tools.NewRegistry()
 		reg.Register(NewTaskBoundaryTool())
 		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
@@ -123,6 +131,11 @@ func main() {
 		reg.Register(NewGitContextTool())
 		reg.Register(&EnvTool{})
 		reg.Register(&ProcessTool{})
+		// Cheesepath extended tools
+		reg.Register(tools.NewDiffFilesTool())
+		reg.Register(tools.NewGrepInFilesTool())
+		reg.Register(tools.NewJSONQueryTool())
+		reg.Register(tools.NewWebFetchTool())
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -159,6 +172,15 @@ func main() {
 	}
 
 	client := llm.NewClient(llmURL)
+
+	// Register client-dependent tools now that client is available.
+	// sub_agent and critic_review need the LLM client; web_search is standalone.
+	reg.Register(NewWebSearchTool(5))
+	reg.Register(NewCriticReviewTool(client, strings.TrimSpace(*modelFlag)))
+	if *autonomous || *fullTools {
+		reg.Register(NewSubAgentTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
+	}
+
 	var handler callback.Handler
 	if *rawLog {
 		handler = callback.NewLogHandler(os.Stdout)
@@ -170,13 +192,19 @@ func main() {
 		handler = ui
 	}
 
-	var strat agent.Strategy = agent.NewReActStrategy()
-	if *architect {
-		strat = agent.NewArchitectStrategy()
+	// Resolve strategy: --strategy flag takes precedence over legacy --architect.
+	stratName := strings.ToLower(strings.TrimSpace(*strategyFlag))
+	if stratName == "" && *architect {
+		stratName = "architect"
 	}
+	strat := pickStrategy(stratName)
+
+	// Resolve memory type from --memory flag.
+	mem := buildMemory(*memoryFlag, client)
 
 	opts := []agent.ExecutorOption{
 		agent.WithStrategy(strat),
+		agent.WithMemory(mem),
 		agent.WithCallbacks(handler),
 		agent.WithMaxSteps(maxSteps),
 	}
@@ -496,4 +524,63 @@ func ambientWorkspaceContext() string {
 		return ""
 	}
 	return "\n\n[Active Workspace Context - Uncommitted Changes]\n" + string(out) + "\n"
+}
+
+// buildMemory constructs the appropriate Memory implementation from the flag value.
+func buildMemory(memType string, client *llm.Client) memory.Memory {
+	switch strings.ToLower(strings.TrimSpace(memType)) {
+	case "file":
+		m, err := memory.NewFileMemory(".cheeserag_memory.json")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: could not open file memory: %v; falling back to buffer\n", err)
+			return memory.NewBufferMemory()
+		}
+		return m
+	case "vector":
+		embedFn := makeEmbedFunc(client)
+		return memory.NewVectorMemory(embedFn, 4096)
+	default:
+		return memory.NewBufferMemory()
+	}
+}
+
+// makeEmbedFunc returns an EmbedFunc that calls Cheesebrain's /v1/embeddings endpoint.
+func makeEmbedFunc(client *llm.Client) memory.EmbedFunc {
+	baseURL := strings.TrimRight(cheesebrainURL(), "/")
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	return func(text string) ([]float32, error) {
+		payload := map[string]any{"input": text}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/embeddings", bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		var result struct {
+			Data []struct {
+				Embedding []float32 `json:"embedding"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, err
+		}
+		if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+			return nil, fmt.Errorf("embeddings endpoint returned empty embedding")
+		}
+		_ = client // referenced to avoid unused import if client is only used here
+		return result.Data[0].Embedding, nil
+	}
 }
