@@ -230,7 +230,12 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				panel.WithPanelMaxSteps(6),
 				panel.WithPanelModel(executor.Model()),
 			)
-			panelCtx, panelCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+			// Give the panel 3× the normal per-turn timeout so all roles can complete.
+			panelTimeout := timeoutSec * 3
+			if panelTimeout < 300 {
+				panelTimeout = 300
+			}
+			panelCtx, panelCancel := context.WithTimeout(context.Background(), time.Duration(panelTimeout)*time.Second)
 			result, err := p.Run(panelCtx, panelGoal)
 			panelCancel()
 			if err != nil {
