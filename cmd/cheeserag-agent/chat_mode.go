@@ -38,19 +38,29 @@ func (h *chatHistory) digest(ctx context.Context, client *llm.Client) {
 		return
 	}
 	fmt.Printf("\x1b[90m[cheese] Cheesepress: Compressing conversation context...\x1b[0m\n")
-	
+
 	var sb strings.Builder
+	sb.WriteString("Summarize the following conversation into a single compact paragraph, preserving key facts, decisions, and context:\n\n")
+	limit := 10
+	if len(h.turns) < limit {
+		limit = len(h.turns)
+	}
+	for i := 0; i < limit; i++ {
+		t := h.turns[i]
+		fmt.Fprintf(&sb, "Q: %s\nA: %s\n\n", oneLine(t.goal, 400), oneLine(t.answer, 400))
+	}
+
 	req := llm.Request{
 		Messages: []llm.Message{
 			{Role: "user", Content: sb.String()},
 		},
 	}
-	
+
 	summary, err := client.Complete(ctx, req)
 	if err != nil {
 		return
 	}
-	
+
 	// Replace first 5 turns with one digest turn
 	newTurns := []chatTurn{{goal: "[Memory Digest]", answer: summary}}
 	newTurns = append(newTurns, h.turns[5:]...)
@@ -253,7 +263,7 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				fmt.Println("\x1b[31mUsage: /memory <buffer|file|vector>\x1b[0m")
 				continue
 			}
-			mem := buildMemory(fields[1], executor.Client())
+			mem := buildMemory(fields[1], executor.Client(), executor.Model())
 			executor.SetMemory(mem)
 			fmt.Printf("\x1b[32m[cheese] Memory switched to: %s\x1b[0m\n", strings.ToLower(fields[1]))
 			continue

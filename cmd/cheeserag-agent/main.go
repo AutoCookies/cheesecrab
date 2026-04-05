@@ -58,6 +58,12 @@ func main() {
 	panelFlag := fs.Bool("panel", false, "run goal through a multi-role agent panel instead of a single agent")
 	panelRolesFlag := fs.String("panel-roles", "researcher,critic,planner", "comma-separated panel roles: researcher,critic,planner,architect,implementer,synthesizer")
 	panelSynthFlag := fs.String("panel-synth", "concat", "panel synthesis mode: concat (default), llm, first")
+	panelIterativeFlag := fs.Bool("panel-iterative", false, "enable iterative refinement pass: critic reviews first-pass answers, roles revise once")
+	checkpointDirFlag := fs.String("checkpoint-dir", strings.TrimSpace(os.Getenv("CHEESERAG_CHECKPOINT_DIR")), "directory to write per-step checkpoint JSON files (empty = disabled)")
+	checkpointEveryFlag := fs.Int("checkpoint-every", 3, "save a checkpoint every N steps (requires --checkpoint-dir)")
+	resumeCheckpointFlag := fs.String("resume-checkpoint", strings.TrimSpace(os.Getenv("CHEESERAG_RESUME_CHECKPOINT")), "path to a checkpoint JSON file to resume from")
+	llmRetriesFlag := fs.Int("llm-retries", 3, "number of additional LLM request attempts on transient error (0 = no retries)")
+	llmStreamTimeoutFlag := fs.Int("llm-stream-timeout", 0, "per-stream timeout in seconds (0 = no timeout)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -181,7 +187,13 @@ func main() {
 		timeoutSec = 300
 	}
 
-	client := llm.NewClient(llmURL)
+	clientOpts := []llm.ClientOption{
+		llm.WithMaxRetries(*llmRetriesFlag),
+	}
+	if *llmStreamTimeoutFlag > 0 {
+		clientOpts = append(clientOpts, llm.WithStreamTimeout(time.Duration(*llmStreamTimeoutFlag)*time.Second))
+	}
+	client := llm.NewClient(llmURL, clientOpts...)
 
 	// Register client-dependent tools now that client is available.
 	// sub_agent and critic_review need the LLM client; web_search is standalone.
@@ -193,28 +205,33 @@ func main() {
 	}
 
 	var metricsHandler *callback.MetricsHandler
-	var handler callback.Handler
+	var baseHandlers []callback.Handler
 	if *rawLog {
-		handler = callback.NewLogHandler(os.Stdout)
+		baseHandlers = append(baseHandlers, callback.NewLogHandler(os.Stdout))
 	} else {
 		ui := NewTerminalUIHandler(os.Stdout)
 		if *quietStartup {
 			ui.Quiet = true
 		}
-		handler = ui
+		baseHandlers = append(baseHandlers, ui)
 	}
 	if *metricsFlag {
 		metricsHandler = callback.NewMetricsHandler()
-		handler = callback.MultiHandler{handler, metricsHandler}
+		baseHandlers = append(baseHandlers, metricsHandler)
 	}
 	if jl := strings.TrimSpace(*jsonLogFlag); jl != "" {
 		f, err := os.OpenFile(jl, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot open json-log %s: %v\n", jl, err)
 		} else {
-			handler = callback.MultiHandler{handler, callback.NewJSONLogHandler(f)}
+			baseHandlers = append(baseHandlers, callback.NewJSONLogHandler(f))
 		}
 	}
+	// Dispatch callbacks asynchronously so slow handlers (file loggers, JSON log)
+	// never block the agent loop. Close() is deferred to flush on exit.
+	asyncHandler := callback.NewAsyncMultiHandler(256, baseHandlers...)
+	defer asyncHandler.Close()
+	var handler callback.Handler = asyncHandler
 
 	// Resolve strategy: --strategy flag takes precedence over legacy --architect.
 	stratName := strings.ToLower(strings.TrimSpace(*strategyFlag))
@@ -224,7 +241,7 @@ func main() {
 	strat := pickStrategy(stratName)
 
 	// Resolve memory type from --memory flag.
-	mem := buildMemory(*memoryFlag, client)
+	mem := buildMemory(*memoryFlag, client, strings.TrimSpace(*modelFlag))
 
 	opts := []agent.ExecutorOption{
 		agent.WithStrategy(strat),
@@ -236,6 +253,29 @@ func main() {
 		opts = append(opts, agent.WithModel(strings.TrimSpace(*modelFlag)))
 	}
 	executor := agent.NewExecutor(client, reg, opts...)
+
+	// Wire up checkpoint system if --checkpoint-dir is set.
+	if cpDir := strings.TrimSpace(*checkpointDirFlag); cpDir != "" {
+		if err := os.MkdirAll(cpDir, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot create checkpoint dir: %v\n", err)
+		} else {
+			cpFile := filepath.Join(cpDir, fmt.Sprintf("checkpoint-%d.json", time.Now().Unix()))
+			executor.EnableCheckpointing(cpFile, *checkpointEveryFlag)
+		}
+	}
+	// Resume from checkpoint if --resume-checkpoint is set.
+	if cpPath := strings.TrimSpace(*resumeCheckpointFlag); cpPath != "" {
+		ckpt, err := agent.LoadCheckpoint(cpPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot load checkpoint %s: %v\n", cpPath, err)
+		} else {
+			if err := executor.RestoreCheckpoint(ckpt); err != nil {
+				fmt.Fprintf(os.Stderr, "[cheese] warning: cannot restore checkpoint: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "[cheese] Resumed from checkpoint: step=%d goal=%q\n", ckpt.Step, ckpt.Goal)
+			}
+		}
+	}
 
 	// Build goal prefix
 	goalPrefix := ""
@@ -332,13 +372,17 @@ func main() {
 		if perRoleSteps < 3 {
 			perRoleSteps = 3
 		}
-		p := panel.NewPanel(client, reg, roles,
+		panelOpts := []panel.PanelOption{
 			panel.WithSynthMode(synthMode),
 			panel.WithPanelMaxSteps(perRoleSteps),
 			panel.WithPanelModel(strings.TrimSpace(*modelFlag)),
 			panel.WithPanelCallbacks(handler),
 			panel.WithPanelDisplay(os.Stderr),
-		)
+		}
+		if *panelIterativeFlag {
+			panelOpts = append(panelOpts, panel.WithIterativeRefinement(true))
+		}
+		p := panel.NewPanel(client, reg, roles, panelOpts...)
 		result, err := p.Run(ctx, userGoal)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "panel error: %v\n", err)
@@ -586,7 +630,7 @@ func ambientWorkspaceContext() string {
 }
 
 // buildMemory constructs the appropriate Memory implementation from the flag value.
-func buildMemory(memType string, client *llm.Client) memory.Memory {
+func buildMemory(memType string, client *llm.Client, model string) memory.Memory {
 	switch strings.ToLower(strings.TrimSpace(memType)) {
 	case "file":
 		m, err := memory.NewFileMemory(".cheeserag_memory.json")
@@ -598,6 +642,10 @@ func buildMemory(memType string, client *llm.Client) memory.Memory {
 	case "vector":
 		embedFn := makeEmbedFunc(client)
 		return memory.NewVectorMemory(embedFn, 4096)
+	case "summary":
+		// SummaryMemory wraps BufferMemory and auto-compresses via LLM when the
+		// conversation exceeds ~8 192 chars (tokenLimit=2048 × 4).
+		return memory.NewSummaryMemory(memory.NewBufferMemory(), client, model, 2048)
 	default:
 		return memory.NewBufferMemory()
 	}

@@ -16,7 +16,8 @@ type BatchEditTool struct{}
 func NewBatchEditTool() *BatchEditTool { return &BatchEditTool{} }
 
 func (t *BatchEditTool) Name() string      { return "batch_edit" }
-func (t *BatchEditTool) Dangerous() bool   { return true }
+func (t *BatchEditTool) Dangerous() bool  { return true }
+func (t *BatchEditTool) DangerLevel() int { return 2 }
 func (t *BatchEditTool) Description() string {
 	return "Apply multiple text replacements across one or more files in one call. " +
 		"Each edit specifies a file path, the exact text to find (old), and its replacement (new). " +
@@ -90,6 +91,31 @@ func (t *BatchEditTool) Execute(_ context.Context, args map[string]any) (string,
 	var sb strings.Builder
 	applied, skipped, failed := 0, 0, 0
 
+	// Phase 1 (non-dry-run only): snapshot every unique file before writing so we
+	// can roll back all completed writes if a later write fails.
+	type fileSnap struct{ path, orig string }
+	var snapshots []fileSnap
+	if !dryRun {
+		seen := map[string]bool{}
+		for _, op := range ops {
+			if seen[op.path] {
+				continue
+			}
+			seen[op.path] = true
+			data, err := os.ReadFile(op.path)
+			if err != nil {
+				return "", fmt.Errorf("batch_edit: cannot snapshot %s before edits: %w", op.path, err)
+			}
+			snapshots = append(snapshots, fileSnap{op.path, string(data)})
+		}
+	}
+	rollback := func() {
+		for _, s := range snapshots {
+			_ = os.WriteFile(s.path, []byte(s.orig), 0o644)
+		}
+	}
+
+	// Phase 2: apply all ops; on any write error restore all snapshots atomically.
 	for _, op := range ops {
 		data, err := os.ReadFile(op.path)
 		if err != nil {
@@ -111,9 +137,8 @@ func (t *BatchEditTool) Execute(_ context.Context, args map[string]any) (string,
 			continue
 		}
 		if err := os.WriteFile(op.path, []byte(updated), 0o644); err != nil {
-			fmt.Fprintf(&sb, "ERROR  %s: cannot write: %v\n", op.path, err)
-			failed++
-			continue
+			rollback()
+			return "", fmt.Errorf("batch_edit: write failed for %s (all edits rolled back): %w", op.path, err)
 		}
 		if strings.HasSuffix(op.path, ".go") {
 			_ = exec.Command("gofmt", "-w", op.path).Run()
