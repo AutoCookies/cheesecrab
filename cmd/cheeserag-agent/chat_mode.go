@@ -229,6 +229,7 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				panel.WithSynthMode(panel.SynthConcat),
 				panel.WithPanelMaxSteps(6),
 				panel.WithPanelModel(executor.Model()),
+				panel.WithPanelDisplay(os.Stderr),
 			)
 			// Give the panel 3× the normal per-turn timeout so all roles can complete.
 			panelTimeout := timeoutSec * 3

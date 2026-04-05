@@ -45,7 +45,7 @@ func (t *PanelTool) Schema() map[string]any {
 			},
 			"roles": map[string]any{
 				"type":        "array",
-				"description": "Role names: researcher, critic, planner, architect, implementer, synthesizer (default: [researcher,critic,planner])",
+				"description": "Role specs. Each item is either a name string (\"researcher\") or \"name:model\" (\"researcher:llama3:8b\"). Builtin names: researcher, critic, planner, architect, implementer, synthesizer.",
 				"items":       map[string]any{"type": "string"},
 			},
 			"synth": map[string]any{
@@ -81,7 +81,7 @@ func (t *PanelTool) Execute(ctx context.Context, args map[string]any) (string, e
 			roleNames = strings.Join(names, ",")
 		}
 	}
-	roles := panel.ParseRoles(roleNames)
+	roles := panel.NewClientsForRoles(panel.ParseRoles(roleNames))
 
 	// Synthesis mode.
 	synthMode := panel.SynthConcat

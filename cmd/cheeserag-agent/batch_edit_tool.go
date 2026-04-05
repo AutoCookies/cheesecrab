@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -102,10 +103,10 @@ func (t *BatchEditTool) Execute(_ context.Context, args map[string]any) (string,
 			skipped++
 			continue
 		}
+		count := strings.Count(content, op.old)
 		updated := strings.ReplaceAll(content, op.old, op.new)
 		if dryRun {
-			fmt.Fprintf(&sb, "DRY    %s: would replace %d occurrence(s)\n",
-				op.path, strings.Count(content, op.old))
+			fmt.Fprintf(&sb, "DRY    %s: would replace %d occurrence(s)\n", op.path, count)
 			applied++
 			continue
 		}
@@ -114,15 +115,17 @@ func (t *BatchEditTool) Execute(_ context.Context, args map[string]any) (string,
 			failed++
 			continue
 		}
-		fmt.Fprintf(&sb, "OK     %s: replaced %d occurrence(s)\n",
-			op.path, strings.Count(content, op.old))
+		if strings.HasSuffix(op.path, ".go") {
+			_ = exec.Command("gofmt", "-w", op.path).Run()
+		}
+		fmt.Fprintf(&sb, "OK     %s: replaced %d occurrence(s)\n", op.path, count)
 		applied++
 	}
 
-	mode := "applied"
+	action := "applied"
 	if dryRun {
-		mode = "previewed"
+		action = "previewed"
 	}
-	fmt.Fprintf(&sb, "\nSummary: %d %s, %d skipped, %d failed", applied, mode, skipped, failed)
+	fmt.Fprintf(&sb, "\nSummary: %d %s, %d skipped, %d failed", applied, action, skipped, failed)
 	return strings.TrimSpace(sb.String()), nil
 }

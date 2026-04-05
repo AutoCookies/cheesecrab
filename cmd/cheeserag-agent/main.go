@@ -326,7 +326,7 @@ func main() {
 
 	// --panel mode: run goal through a multi-role panel instead of a single executor.
 	if *panelFlag {
-		roles := panel.ParseRoles(*panelRolesFlag)
+		roles := panel.NewClientsForRoles(panel.ParseRoles(*panelRolesFlag))
 		synthMode := panel.SynthMode(*panelSynthFlag)
 		perRoleSteps := maxSteps / 2
 		if perRoleSteps < 3 {
@@ -337,6 +337,7 @@ func main() {
 			panel.WithPanelMaxSteps(perRoleSteps),
 			panel.WithPanelModel(strings.TrimSpace(*modelFlag)),
 			panel.WithPanelCallbacks(handler),
+			panel.WithPanelDisplay(os.Stderr),
 		)
 		result, err := p.Run(ctx, userGoal)
 		if err != nil {
