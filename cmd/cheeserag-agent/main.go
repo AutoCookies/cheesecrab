@@ -21,6 +21,7 @@ import (
 	"github.com/AutoCookies/crabpath/callback"
 	"github.com/AutoCookies/crabpath/llm"
 	"github.com/AutoCookies/crabpath/memory"
+	"github.com/AutoCookies/crabpath/panel"
 	"github.com/AutoCookies/crabpath/tools"
 )
 
@@ -54,6 +55,9 @@ func main() {
 	memoryFlag := fs.String("memory", strings.TrimSpace(os.Getenv("CHEESERAG_MEMORY")), "memory type: buffer (default), file, vector")
 	metricsFlag := fs.Bool("metrics", false, "print token estimate, step count, and timing summary after each run")
 	jsonLogFlag := fs.String("json-log", "", "path to write NDJSON event log (one JSON object per line per event)")
+	panelFlag := fs.Bool("panel", false, "run goal through a multi-role agent panel instead of a single agent")
+	panelRolesFlag := fs.String("panel-roles", "researcher,critic,planner", "comma-separated panel roles: researcher,critic,planner,architect,implementer,synthesizer")
+	panelSynthFlag := fs.String("panel-synth", "concat", "panel synthesis mode: concat (default), llm, first")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -185,6 +189,7 @@ func main() {
 	reg.Register(NewCriticReviewTool(client, strings.TrimSpace(*modelFlag)))
 	if *autonomous || *fullTools {
 		reg.Register(NewSubAgentTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
+		reg.Register(NewPanelTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
 	}
 
 	var metricsHandler *callback.MetricsHandler
@@ -317,6 +322,35 @@ func main() {
 			fmt.Fprintf(os.Stderr, "preflight failed: %v\n(set -skip-preflight or CHEESERAG_SKIP_PREFLIGHT=1 to bypass)\n", err)
 			os.Exit(1)
 		}
+	}
+
+	// --panel mode: run goal through a multi-role panel instead of a single executor.
+	if *panelFlag {
+		roles := panel.ParseRoles(*panelRolesFlag)
+		synthMode := panel.SynthMode(*panelSynthFlag)
+		perRoleSteps := maxSteps / 2
+		if perRoleSteps < 3 {
+			perRoleSteps = 3
+		}
+		p := panel.NewPanel(client, reg, roles,
+			panel.WithSynthMode(synthMode),
+			panel.WithPanelMaxSteps(perRoleSteps),
+			panel.WithPanelModel(strings.TrimSpace(*modelFlag)),
+			panel.WithPanelCallbacks(handler),
+		)
+		result, err := p.Run(ctx, userGoal)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "panel error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println()
+		fmt.Println(result.Format())
+		if metricsHandler != nil {
+			m := metricsHandler.Snapshot()
+			fmt.Printf("Metrics:     tokens≈%d tool_calls=%d total_duration=%s\n",
+				m.TotalTokens, m.ToolCallCount, m.TotalDuration.Round(time.Millisecond))
+		}
+		return
 	}
 
 	events, path := executor.Run(ctx, goal)

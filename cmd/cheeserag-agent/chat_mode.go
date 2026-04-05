@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/AutoCookies/crabpath/agent"
 	"github.com/AutoCookies/crabpath/callback"
 	"github.com/AutoCookies/crabpath/llm"
+	"github.com/AutoCookies/crabpath/panel"
 )
 
 // chatHistory stores previous Q&A pairs for multi-turn context.
@@ -207,11 +208,38 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 		case "/strategy":
 			fields := strings.Fields(input)
 			if len(fields) < 2 {
-				fmt.Println("\x1b[31mUsage: /strategy <react|reflect|planexec|architect|fnagent>\x1b[0m")
+				fmt.Println("\x1b[31mUsage: /strategy <react|reflect|planexec|architect|fnagent|panel>\x1b[0m")
 				continue
 			}
 			executor.SetStrategy(pickStrategy(fields[1]))
 			fmt.Printf("\x1b[32m[cheese] Strategy switched to: %s\x1b[0m\n", strings.ToLower(fields[1]))
+			continue
+		case "/panel":
+			fields := strings.Fields(input)
+			panelGoal := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
+			if panelGoal == "" {
+				fmt.Println("\x1b[31mUsage: /panel <goal>\x1b[0m")
+				continue
+			}
+			fmt.Printf("\x1b[36m[cheese] Running panel (researcher · critic · planner)...\x1b[0m\n")
+			r1, _ := panel.BuiltinRole("researcher")
+			r2, _ := panel.BuiltinRole("critic")
+			r3, _ := panel.BuiltinRole("planner")
+			p := panel.NewPanel(executor.Client(), executor.Registry(), []panel.Role{r1, r2, r3},
+				panel.WithSynthMode(panel.SynthConcat),
+				panel.WithPanelMaxSteps(6),
+				panel.WithPanelModel(executor.Model()),
+			)
+			panelCtx, panelCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
+			result, err := p.Run(panelCtx, panelGoal)
+			panelCancel()
+			if err != nil {
+				fmt.Printf("\x1b[31m[panel error] %v\x1b[0m\n", err)
+			} else {
+				fmt.Printf("\n%s\n", result.Format())
+				history.add(panelGoal, result.Synthesis)
+				savePersonalHistory(history)
+			}
 			continue
 		case "/memory":
 			fields := strings.Fields(input)
@@ -399,6 +427,7 @@ func printChatHelp() {
 	fmt.Println("  /tools               List all registered tools (⚠ = dangerous)")
 	fmt.Println("  /model [name]        Show or switch the LLM model at runtime")
 	fmt.Println("  /save [path]         Save conversation to a markdown file")
+	fmt.Println("  /panel <goal>        Run goal through researcher·critic·planner panel")
 	fmt.Println()
 	fmt.Println("Multi-line input: end a line with \\ to continue.")
 	fmt.Println()
