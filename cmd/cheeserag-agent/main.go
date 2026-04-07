@@ -52,12 +52,14 @@ func main() {
 	quietStartup := fs.Bool("quiet-startup", false, "suppress preflight and startup banners")
 	architect := fs.Bool("architect", false, "use design-first Architect strategy (forces implementation planning) [deprecated: use --strategy architect]")
 	strategyFlag := fs.String("strategy", strings.TrimSpace(os.Getenv("CHEESERAG_STRATEGY")), "agent strategy: react (default), reflect, planexec, architect, fnagent")
-	memoryFlag := fs.String("memory", strings.TrimSpace(os.Getenv("CHEESERAG_MEMORY")), "memory type: buffer (default), file, vector")
+	memoryFlag := fs.String("memory", strings.TrimSpace(os.Getenv("CHEESERAG_MEMORY")), "memory type: buffer (default), file, vector, sliding, summary")
+	maxHistoryFlag := fs.Int("max-history", 40, "sliding window cap on in-run LLM history messages (0 = unlimited, CHEESERAG_MAX_HISTORY)")
+	maxObsBytesFlag := fs.Int("max-obs-bytes", 16384, "per-observation truncation cap in bytes (0 = unlimited, CHEESERAG_MAX_OBS_BYTES)")
 	metricsFlag := fs.Bool("metrics", false, "print token estimate, step count, and timing summary after each run")
 	jsonLogFlag := fs.String("json-log", "", "path to write NDJSON event log (one JSON object per line per event)")
 	panelFlag := fs.Bool("panel", false, "run goal through a multi-role agent panel instead of a single agent")
 	panelRolesFlag := fs.String("panel-roles", "researcher,critic,planner", "comma-separated panel roles: researcher,critic,planner,architect,implementer,synthesizer")
-	panelSynthFlag := fs.String("panel-synth", "concat", "panel synthesis mode: concat (default), llm, first")
+	panelSynthFlag := fs.String("panel-synth", "concat", "panel synthesis mode: concat (default), llm, first, vote")
 	panelIterativeFlag := fs.Bool("panel-iterative", false, "enable iterative refinement pass: critic reviews first-pass answers, roles revise once")
 	checkpointDirFlag := fs.String("checkpoint-dir", strings.TrimSpace(os.Getenv("CHEESERAG_CHECKPOINT_DIR")), "directory to write per-step checkpoint JSON files (empty = disabled)")
 	checkpointEveryFlag := fs.Int("checkpoint-every", 3, "save a checkpoint every N steps (requires --checkpoint-dir)")
@@ -108,6 +110,8 @@ func main() {
 		reg.Register(NewGitContextTool())
 		reg.Register(NewRAGIngestTool(ragFacadeURL()))
 		reg.Register(wrap(NewBatchEditTool(), autoApprove))
+		reg.Register(&HttpRequestTool{})
+		reg.Register(wrap(&PatchApplyTool{}, autoApprove))
 	} else if minimalTools {
 		reg = tools.NewRegistry()
 		reg.Register(NewTaskBoundaryTool())
@@ -152,6 +156,8 @@ func main() {
 		reg.Register(tools.NewWebFetchTool())
 		reg.Register(NewRAGIngestTool(ragFacadeURL()))
 		reg.Register(wrap(NewBatchEditTool(), autoApprove))
+		reg.Register(&HttpRequestTool{})
+		reg.Register(wrap(&PatchApplyTool{}, autoApprove))
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -243,11 +249,31 @@ func main() {
 	// Resolve memory type from --memory flag.
 	mem := buildMemory(*memoryFlag, client, strings.TrimSpace(*modelFlag))
 
+	// Resolve env overrides for new RAM-limiting flags.
+	maxHistory := *maxHistoryFlag
+	if maxHistory == 40 {
+		if v := strings.TrimSpace(os.Getenv("CHEESERAG_MAX_HISTORY")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				maxHistory = n
+			}
+		}
+	}
+	maxObsBytes := *maxObsBytesFlag
+	if maxObsBytes == 16384 {
+		if v := strings.TrimSpace(os.Getenv("CHEESERAG_MAX_OBS_BYTES")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				maxObsBytes = n
+			}
+		}
+	}
+
 	opts := []agent.ExecutorOption{
 		agent.WithStrategy(strat),
 		agent.WithMemory(mem),
 		agent.WithCallbacks(handler),
 		agent.WithMaxSteps(maxSteps),
+		agent.WithMaxHistory(maxHistory),
+		agent.WithMaxObservationBytes(maxObsBytes),
 	}
 	if strings.TrimSpace(*modelFlag) != "" {
 		opts = append(opts, agent.WithModel(strings.TrimSpace(*modelFlag)))
@@ -641,13 +667,17 @@ func buildMemory(memType string, client *llm.Client, model string) memory.Memory
 		return m
 	case "vector":
 		embedFn := makeEmbedFunc(client)
-		return memory.NewVectorMemory(embedFn, 4096)
+		// maxEntries=500 caps embedding RAM at ~1.5 MB; maxTokens=4096 budgets Retrieve output.
+		return memory.NewBoundedVectorMemory(embedFn, 4096, 500)
 	case "summary":
 		// SummaryMemory wraps BufferMemory and auto-compresses via LLM when the
 		// conversation exceeds ~8 192 chars (tokenLimit=2048 × 4).
-		return memory.NewSummaryMemory(memory.NewBufferMemory(), client, model, 2048)
+		return memory.NewSummaryMemory(memory.NewBoundedBufferMemory(200), client, model, 2048)
+	case "sliding":
+		return memory.NewSlidingWindowMemory(30)
 	default:
-		return memory.NewBufferMemory()
+		// Bounded buffer: keeps at most 200 messages; evicts oldest (FIFO).
+		return memory.NewBoundedBufferMemory(200)
 	}
 }
 

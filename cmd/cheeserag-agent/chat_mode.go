@@ -17,11 +17,17 @@ import (
 	"github.com/AutoCookies/crabpath/panel"
 )
 
+const (
+	maxPinBytes      = 8 * 1024  // 8 KB per pinned file
+	maxTotalPinBytes = 64 * 1024 // 64 KB total across all pins
+)
+
 // chatHistory stores previous Q&A pairs for multi-turn context.
 type chatHistory struct {
-	turns []chatTurn
-	pins  map[string]string // filepath -> content
-	maxN  int
+	turns    []chatTurn
+	pins     map[string]string // filepath -> content
+	pinOrder []string          // insertion order for FIFO eviction
+	maxN     int
 }
 
 type chatTurn struct {
@@ -31,6 +37,39 @@ type chatTurn struct {
 
 func (h *chatHistory) add(goal, answer string) {
 	h.turns = append(h.turns, chatTurn{goal: goal, answer: answer})
+	// Hard cap: drop oldest turns when over the limit.
+	if h.maxN > 0 && len(h.turns) > h.maxN {
+		h.turns = h.turns[len(h.turns)-h.maxN:]
+	}
+}
+
+// totalPinSize returns the sum of bytes held in all pins.
+func totalPinSize(pins map[string]string) int {
+	total := 0
+	for _, v := range pins {
+		total += len(v)
+	}
+	return total
+}
+
+// addPin stores content for the given path, capping per-file and total size.
+func (h *chatHistory) addPin(path, content string) {
+	if len(content) > maxPinBytes {
+		content = content[:maxPinBytes] + "\n…[pinned file truncated at 8 KB]"
+	}
+	// Track insertion order (update-in-place doesn't change order).
+	if _, exists := h.pins[path]; !exists {
+		h.pinOrder = append(h.pinOrder, path)
+	}
+	h.pins[path] = content
+	// Evict oldest pins until total budget is satisfied.
+	for totalPinSize(h.pins) > maxTotalPinBytes && len(h.pinOrder) > 0 {
+		oldest := h.pinOrder[0]
+		h.pinOrder = h.pinOrder[1:]
+		if oldest != path { // never evict the pin we just added
+			delete(h.pins, oldest)
+		}
+	}
 }
 
 func (h *chatHistory) digest(ctx context.Context, client *llm.Client) {
@@ -88,7 +127,7 @@ func (h *chatHistory) buildContext() string {
 
 // runChatMode runs the interactive REPL. Called from main when --chat is set.
 func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int) {
-	history := &chatHistory{maxN: 20, pins: make(map[string]string)}
+	history := &chatHistory{maxN: 20, pins: make(map[string]string), pinOrder: nil}
 	loadPersonalHistory(history)
 	sc := bufio.NewScanner(os.Stdin)
 
@@ -201,7 +240,7 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 			if err != nil {
 				fmt.Printf("\x1b[31mError reading file: %v\x1b[0m\n", err)
 			} else {
-				history.pins[path] = string(b)
+				history.addPin(path, string(b))
 				fmt.Printf("\x1b[32mPinned %s to session context.\x1b[0m\n", path)
 			}
 			continue
@@ -329,7 +368,8 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				}
 				fmt.Println("    }")
 			}
-			fmt.Println("```\n")
+			fmt.Println("```")
+			fmt.Println()
 			continue
 		}
 

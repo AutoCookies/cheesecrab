@@ -50,8 +50,8 @@ func (t *PanelTool) Schema() map[string]any {
 			},
 			"synth": map[string]any{
 				"type":        "string",
-				"description": "How to synthesize answers: concat (default), llm, first",
-				"enum":        []string{"concat", "llm", "first"},
+				"description": "How to synthesize answers: concat (default), llm, first, vote",
+				"enum":        []string{"concat", "llm", "first", "vote"},
 			},
 			"max_steps": map[string]any{
 				"type":        "integer",
@@ -91,6 +91,8 @@ func (t *PanelTool) Execute(ctx context.Context, args map[string]any) (string, e
 			synthMode = panel.SynthLLM
 		case "first":
 			synthMode = panel.SynthFirst
+		case "vote":
+			synthMode = panel.SynthVote
 		}
 	}
 
