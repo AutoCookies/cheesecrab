@@ -158,7 +158,7 @@ The Go agent links Cheesepath from the local submodule via a `replace` directive
 
 ```bash
 # From the repo root
-go build ./cmd/cheeserag-agent/ -o build/cheeserag-agent
+go build -o build/cheeserag-agent ./cmd/cheeserag-agent/
 
 # Run once to verify
 ./build/cheeserag-agent --help
@@ -166,7 +166,7 @@ go build ./cmd/cheeserag-agent/ -o build/cheeserag-agent
 
 If you also want the standalone ingestion CLI:
 ```bash
-go build ./cmd/cheeserag-ingest/ -o build/cheeserag-ingest
+go build -o build/cheeserag-ingest ./cmd/cheeserag-ingest/
 ```
 
 ---
