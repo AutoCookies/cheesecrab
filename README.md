@@ -1,16 +1,19 @@
 <div align="center">
   <img src="assets/logo.png" width="320" alt="Cheeserag Logo">
   <h1>Cheeserag</h1>
-  <p><b>A unified, local RAG stack and autonomous developer agent with a "vibe".</b></p>
+  <p><b>A Local AI Operating System — <ins>Powered by PomaiDB</ins></b></p>
   
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8.svg?style=flat&logo=go)](https://golang.org/)
   [![C++](https://img.shields.io/badge/C++-17-blue.svg?style=flat&logo=c%2B%2B)](https://en.cppreference.com/w/cpp/17)
+  [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
 </div>
 
 ---
 
-**Cheeserag** is a high-performance, local-first retrieval-augmented generation (RAG) ecosystem. It combines a C++ inference engine, an embedded vector database, and a Go-based autonomous agent into a single, seamless developer experience.
+**Cheeserag** is an edge-native, production-grade Local AI Operating System. Lightweight (under 200MB RAM ideal), blisteringly fast, and 100% offline. 
+
+**Powered exclusively by PomaiDB** — the fastest and most efficient edge vector database — Cheeserag offers a fully integrated FastAPI orchestrator, a C++ inference engine, and a Go-based autonomous agent executing ReAct workflows.
 
 <div align="center">
   <img src="assets/demo.png" width="800" alt="Cheeserag CLI Demo">
@@ -18,82 +21,50 @@
 
 ## ✨ Key Features
 
-- 🧀 **Unified CLI (`cheese`)**: A single entry point to manage the entire stack—server, facade, and agent.
-- 🧠 **Autonomous Agent**: Powered by [Cheesepath](https://github.com/AutoCookies/cheesepath), our ReAct agent searches local files, queries Wikipedia, and monitors your system.
-- ⚡ **Local RAG Stack**:
-  - **Cheesebrain**: C++ inference server (`/v1/chat/completions`).
-  - **PomaiDB**: Embedded vector store for lightning-fast memory.
-  - **RAG Facade**: Lightweight Python service bridging embeddings and storage.
-- 🎭 **Smooth & Vibe UX**: A typewriter-style terminal interface with real-time slash suggestions (`/help`, `/history`) and minimalist "thinking" indicators.
-- 💾 **Session Persistence**: Automatically remembers your conversations across restarts.
-- 🛡️ **Safe Execution**: Local command execution with interactive confirmation gates and configurable allowlists.
+- ⚡ **Powered by PomaiDB**: The entire intelligence and memory layer relies on the high-speed PomaiDB C++ core with Python binding orchestrations.
+- 🚀 **FastAPI Orchestrator (`cheese_api`)**: A robust, MLOps-ready Python backend handling smart ingestion, PDF/Markdown chunking, and Prometheus observability metrics.
+- 🦀 **Autonomous Agent**: Powered by [Crabpath](https://github.com/AutoCookies/crabpath), our ReAct agent searches local files, queries Wikipedia, and monitors your system.
+- 🐳 **Docker-Ready**: Multi-container `docker-compose.yml` for instant, production-grade deployment anywhere.
+- 🎭 **Smooth UX**: A typewriter-style terminal interface (`cheese` CLI) with real-time slash suggestions.
 
-## 🚀 Quickstart
+## 🚀 Quickstart (Docker & FastAPI)
 
-The easiest way to get started is using the unified `cheese` wrapper:
+Get up and running with a production-ready stack in one command:
 
 ```bash
-# 1. Build the stack
-./build.sh
+# 1. Start the FastAPI orchestrator and Cheesebrain using Docker Compose
+docker-compose up -d --build
 
-# 2. Start the interactive chat
+# 2. Start the interactive autonomous 'cheese' CLI
 ./cheese
 ```
 
-The `cheese` script handles process lifecycles, readiness checks, and environment setup automatically.
+### Advanced Manual Usage
+
+1. **Start the FastAPI Orchestrator (with Virtual Env)**:
+   ```bash
+   python3 -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   uvicorn cheese_api.server:app --port 9090
+   ```
+
+2. **Ingest a Document (Smart PDF/Text Pipeline)**:
+   ```bash
+   curl -X POST -F "doc_id=1" -F "file=@your_document.pdf" http://localhost:9090/v1/ingest
+   ```
+
+3. **Check MLOps Metrics**:
+   ```bash
+   curl http://localhost:9090/metrics
+   ```
 
 ## 🏗️ Architecture
 
-Cheeserag is built on three core sub-modules:
+Cheeserag has evolved from a simple facade into a full ML engineering stack:
 
 | Component | Repository | Role |
 |-----------|------------|------|
-| **Inference** | [Cheesebrain](https://github.com/pomagrenate/cheesebrain) | OpenAI-compatible LLM & Embeddings server. |
-| **Vector DB** | [PomaiDB](https://github.com/pomagrenate/pomaidb) | High-speed vector storage and search membrane. |
-| **Agent** | [Cheesepath](https://github.com/pomagrenate/cheesepath) | The ReAct executor that manages tools and reasoning. |
-
-## 🛠️ Advanced Usage
-
-### Manual Service Management
-
-If you prefer to run components separately:
-
-1. **Start Inference**:
-   ```bash
-   ./third_party/cheesebrain/build/bin/cheese-server -m models/qwen2.5-0.5b.gguf --port 8080 --embeddings --pooling mean
-   ```
-
-2. **Start RAG Facade**:
-   ```bash
-   export CHEESEBRAIN_URL=http://localhost:8080
-   python3 -m rag_facade
-   ```
-
-3. **Start Agent**:
-   ```bash
-   ./build/cheeserag-agent "How does the vector storage work?"
-   ```
-
-### Command Suggestions
-In the interactive terminal, simply type `/` at any time to see available commands:
-- `/help`: Detailed usage instructions.
-- `/history`: Review previous turns in the session.
-- `/clear`: Reset chat context and history.
-- `/exit`: Securely shutdown all services and exit.
-
-## 🧪 Development
-
-### Building Submodules
-```bash
-# Update all submodules
-git submodule update --init --recursive
-
-# Build C++ and Go binaries
-./build.sh
-```
-
----
-
-<p align="center">
-  Made with 🧀 by the Pomagrenate Team.
-</p>
+| **Core API** | `cheese_api` | **FastAPI** service handling Pydantic validation, advanced PyMuPDF chunking, and Prometheus metrics. |
+| **Vector DB** | [PomaiDB](https://github.com/pomagrenate/pomaidb) | **The hero of the system.** Zero-latency vector memory and search membrane. |
+| **Inference** | [Cheesebrain](https://github.com/pomagrenate/cheesebrain) | C++ OpenAI-compatible Server `/v1/chat/completions`. |
+| **Agent** | [Cheesepath](https://github.com/pomagrenate/cheesepath) | The Go CLI `cheese` executor for tool-calling. |

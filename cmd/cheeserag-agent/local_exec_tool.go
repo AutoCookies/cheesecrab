@@ -29,7 +29,8 @@ func NewLocalExecTool() *LocalExecTool {
 }
 
 func (t *LocalExecTool) Name() string      { return "local_exec" }
-func (t *LocalExecTool) Dangerous() bool   { return true }
+func (t *LocalExecTool) Dangerous() bool  { return true }
+func (t *LocalExecTool) DangerLevel() int { return 3 }
 func (t *LocalExecTool) Description() string {
 	return "Execute local shell commands (dangerous). Supports command, cwd, timeout_sec, stdin."
 }

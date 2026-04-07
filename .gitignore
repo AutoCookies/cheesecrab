@@ -1,13 +1,35 @@
 # Large GGUF weights (keep locally; download via Hugging Face if needed)
 models/*.gguf
 
-# Local runtime/build artifacts
+# Compiled binaries
+build/
+/cheeserag-agent
+
+# Python virtual environment
+.venv/
+
+# Runtime data / vector DB caches
 .cache/
-cheeserag-agent
+rag_db/
+data/
+
+# Logs and audit trails
+*.log
+audit.log
 
 # Agent run artifacts
 *-report.json
 *-state.json
+.cheeserag_history.json
+.cheeserag_memory.json
 
+# Python bytecode
 __pycache__/
 *.py[cod]
+*.egg-info/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

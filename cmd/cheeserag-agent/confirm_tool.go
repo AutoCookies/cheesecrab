@@ -36,6 +36,23 @@ func (c *ConfirmingTool) Dangerous() bool                     { return true }
 func (c *ConfirmingTool) Description() string                 { return c.inner.Description() }
 func (c *ConfirmingTool) Schema() map[string]any              { return c.inner.Schema() }
 
+// dangerRanker is the optional interface for severity-tiered dangerous tools.
+type dangerRanker interface {
+	DangerLevel() int
+}
+
+func dangerLabel(t Tool) string {
+	if dr, ok := t.(dangerRanker); ok {
+		switch dr.DangerLevel() {
+		case 1:
+			return "LOW"
+		case 3:
+			return "HIGH"
+		}
+	}
+	return "MEDIUM"
+}
+
 func (c *ConfirmingTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	if c.autoApprove || !isTTY() {
 		return c.inner.Execute(ctx, args)
@@ -43,7 +60,8 @@ func (c *ConfirmingTool) Execute(ctx context.Context, args map[string]any) (stri
 
 	// Build a short preview of args for the prompt.
 	preview := summarizeArgs(args)
-	fmt.Fprintf(os.Stderr, "\n\x1b[33m⚠  dangerous tool:\x1b[0m %s %s\n", c.inner.Name(), preview)
+	label := dangerLabel(c.inner)
+	fmt.Fprintf(os.Stderr, "\n\x1b[33m⚠  [%s DANGER]\x1b[0m %s %s\n", label, c.inner.Name(), preview)
 	fmt.Fprintf(os.Stderr, "Allow? [y/N] ")
 
 	sc := bufio.NewScanner(os.Stdin)

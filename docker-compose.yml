@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  cheesebrain:
+    build: 
+      context: ./third_party/cheesebrain
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./models:/models
+    command: ["cheese-server", "--embeddings", "--pooling", "mean", "-m", "/models/qwen2.5-0.5b-instruct-q4_k_m.gguf", "--host", "0.0.0.0", "--port", "8080"]
+    restart: unless-stopped
+
+  cheese-api:
+    build: .
+    ports:
+      - "9090:9090"
+    environment:
+      - CHEESEBRAIN_URL=http://cheesebrain:8080
+      - CHEESE_EMBEDDING_MODEL=qwen2.5-0.5b-instruct-q4_k_m.gguf
+      - RAG_DB_PATH=/data/rag_db
+    volumes:
+      - rag_data:/data
+      - ./cheese_api:/app/cheese_api  # Hot-reload for dev
+    depends_on:
+      - cheesebrain
+    restart: unless-stopped
+
+  cheese-ui:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://cheese-api:9090
+      - OAI_URL=http://cheesebrain:8080/v1/chat/completions
+    depends_on:
+      - cheese-api
+    command: ["streamlit", "run", "cheese_api/ui.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    restart: unless-stopped
+
+volumes:
+  rag_data:

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -16,6 +20,8 @@ import (
 	"github.com/AutoCookies/crabpath/agent"
 	"github.com/AutoCookies/crabpath/callback"
 	"github.com/AutoCookies/crabpath/llm"
+	"github.com/AutoCookies/crabpath/memory"
+	"github.com/AutoCookies/crabpath/panel"
 	"github.com/AutoCookies/crabpath/tools"
 )
 
@@ -44,6 +50,22 @@ func main() {
 	confirmDangerous := fs.Bool("confirm-dangerous", !isBoolEnv("CHEESERAG_AUTO_APPROVE"), "prompt [y/N] before executing dangerous tools (default true when TTY)")
 	yesAll := fs.Bool("yes", isBoolEnv("CHEESERAG_YES"), "auto-approve all dangerous tool prompts (implies --confirm-dangerous=false)")
 	quietStartup := fs.Bool("quiet-startup", false, "suppress preflight and startup banners")
+	architect := fs.Bool("architect", false, "use design-first Architect strategy (forces implementation planning) [deprecated: use --strategy architect]")
+	strategyFlag := fs.String("strategy", strings.TrimSpace(os.Getenv("CHEESERAG_STRATEGY")), "agent strategy: react (default), reflect, planexec, architect, fnagent")
+	memoryFlag := fs.String("memory", strings.TrimSpace(os.Getenv("CHEESERAG_MEMORY")), "memory type: buffer (default), file, vector, sliding, summary")
+	maxHistoryFlag := fs.Int("max-history", 40, "sliding window cap on in-run LLM history messages (0 = unlimited, CHEESERAG_MAX_HISTORY)")
+	maxObsBytesFlag := fs.Int("max-obs-bytes", 16384, "per-observation truncation cap in bytes (0 = unlimited, CHEESERAG_MAX_OBS_BYTES)")
+	metricsFlag := fs.Bool("metrics", false, "print token estimate, step count, and timing summary after each run")
+	jsonLogFlag := fs.String("json-log", "", "path to write NDJSON event log (one JSON object per line per event)")
+	panelFlag := fs.Bool("panel", false, "run goal through a multi-role agent panel instead of a single agent")
+	panelRolesFlag := fs.String("panel-roles", "researcher,critic,planner", "comma-separated panel roles: researcher,critic,planner,architect,implementer,synthesizer")
+	panelSynthFlag := fs.String("panel-synth", "concat", "panel synthesis mode: concat (default), llm, first, vote")
+	panelIterativeFlag := fs.Bool("panel-iterative", false, "enable iterative refinement pass: critic reviews first-pass answers, roles revise once")
+	checkpointDirFlag := fs.String("checkpoint-dir", strings.TrimSpace(os.Getenv("CHEESERAG_CHECKPOINT_DIR")), "directory to write per-step checkpoint JSON files (empty = disabled)")
+	checkpointEveryFlag := fs.Int("checkpoint-every", 3, "save a checkpoint every N steps (requires --checkpoint-dir)")
+	resumeCheckpointFlag := fs.String("resume-checkpoint", strings.TrimSpace(os.Getenv("CHEESERAG_RESUME_CHECKPOINT")), "path to a checkpoint JSON file to resume from")
+	llmRetriesFlag := fs.Int("llm-retries", 3, "number of additional LLM request attempts on transient error (0 = no retries)")
+	llmStreamTimeoutFlag := fs.Int("llm-stream-timeout", 0, "per-stream timeout in seconds (0 = no timeout)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -66,8 +88,13 @@ func main() {
 	var reg *tools.Registry
 	if *autonomous {
 		reg = tools.NewRegistry()
+		reg.Register(NewTaskBoundaryTool())
+		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
-		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
+		reg.Register(tools.NewRunPythonTestTool())
+		reg.Register(tools.NewRunGoTestTool())
+		reg.Register(tools.NewRunLinterTool())
 		reg.Register(wrap(NewLocalExecTool(), autoApprove))
 		reg.Register(wrap(NewProcStartTool(), autoApprove))
 		reg.Register(NewProcStatusTool())
@@ -81,10 +108,19 @@ func main() {
 		reg.Register(NewListDirTool())
 		reg.Register(NewSearchFilesTool())
 		reg.Register(NewGitContextTool())
+		reg.Register(NewRAGIngestTool(ragFacadeURL()))
+		reg.Register(wrap(NewBatchEditTool(), autoApprove))
+		reg.Register(&HttpRequestTool{})
+		reg.Register(wrap(&PatchApplyTool{}, autoApprove))
 	} else if minimalTools {
 		reg = tools.NewRegistry()
+		reg.Register(NewTaskBoundaryTool())
+		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
-		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
+		reg.Register(tools.NewRunPythonTestTool())
+		reg.Register(tools.NewRunGoTestTool())
+		reg.Register(tools.NewRunLinterTool())
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -96,9 +132,16 @@ func main() {
 			reg.Register(NewPortCheckTool())
 		}
 	} else {
-		reg = tools.DefaultRegistry(registryURL)
+		// Full-tools mode: start from a clean registry and manually compose the tool set,
+		// mixing cheeserag-specific tools (with confirmation wrappers) and cheesepath extended tools.
+		reg = tools.NewRegistry()
+		reg.Register(NewTaskBoundaryTool())
+		reg.Register(NewNotifyUserTool())
 		reg.Register(NewRAGRetrieveTool(ragFacadeURL()))
-		reg.Register(NewRAGFetchWikipediaTool(ragFacadeURL()))
+		reg.Register(NewRAGRetrieveCodeTool(ragFacadeURL()))
+		reg.Register(tools.NewRunPythonTestTool())
+		reg.Register(tools.NewRunGoTestTool())
+		reg.Register(tools.NewRunLinterTool())
 		reg.Register(NewReadFileTool())
 		reg.Register(wrap(NewWriteFileTool(), autoApprove))
 		reg.Register(NewListDirTool())
@@ -106,6 +149,15 @@ func main() {
 		reg.Register(NewGitContextTool())
 		reg.Register(&EnvTool{})
 		reg.Register(&ProcessTool{})
+		// Cheesepath extended tools
+		reg.Register(tools.NewDiffFilesTool())
+		reg.Register(tools.NewGrepInFilesTool())
+		reg.Register(tools.NewJSONQueryTool())
+		reg.Register(tools.NewWebFetchTool())
+		reg.Register(NewRAGIngestTool(ragFacadeURL()))
+		reg.Register(wrap(NewBatchEditTool(), autoApprove))
+		reg.Register(&HttpRequestTool{})
+		reg.Register(wrap(&PatchApplyTool{}, autoApprove))
 		if enableExec {
 			reg.Register(wrap(NewLocalExecTool(), autoApprove))
 			reg.Register(wrap(NewProcStartTool(), autoApprove))
@@ -141,26 +193,115 @@ func main() {
 		timeoutSec = 300
 	}
 
-	client := llm.NewClient(llmURL)
-	var handler callback.Handler
+	clientOpts := []llm.ClientOption{
+		llm.WithMaxRetries(*llmRetriesFlag),
+	}
+	if *llmStreamTimeoutFlag > 0 {
+		clientOpts = append(clientOpts, llm.WithStreamTimeout(time.Duration(*llmStreamTimeoutFlag)*time.Second))
+	}
+	client := llm.NewClient(llmURL, clientOpts...)
+
+	// Register client-dependent tools now that client is available.
+	// sub_agent and critic_review need the LLM client; web_search is standalone.
+	reg.Register(NewWebSearchTool(5))
+	reg.Register(NewCriticReviewTool(client, strings.TrimSpace(*modelFlag)))
+	if *autonomous || *fullTools {
+		reg.Register(NewSubAgentTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
+		reg.Register(NewPanelTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
+	}
+
+	var metricsHandler *callback.MetricsHandler
+	var baseHandlers []callback.Handler
 	if *rawLog {
-		handler = callback.NewLogHandler(os.Stdout)
+		baseHandlers = append(baseHandlers, callback.NewLogHandler(os.Stdout))
 	} else {
 		ui := NewTerminalUIHandler(os.Stdout)
 		if *quietStartup {
 			ui.Quiet = true
 		}
-		handler = ui
+		baseHandlers = append(baseHandlers, ui)
 	}
+	if *metricsFlag {
+		metricsHandler = callback.NewMetricsHandler()
+		baseHandlers = append(baseHandlers, metricsHandler)
+	}
+	if jl := strings.TrimSpace(*jsonLogFlag); jl != "" {
+		f, err := os.OpenFile(jl, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot open json-log %s: %v\n", jl, err)
+		} else {
+			baseHandlers = append(baseHandlers, callback.NewJSONLogHandler(f))
+		}
+	}
+	// Dispatch callbacks asynchronously so slow handlers (file loggers, JSON log)
+	// never block the agent loop. Close() is deferred to flush on exit.
+	asyncHandler := callback.NewAsyncMultiHandler(256, baseHandlers...)
+	defer asyncHandler.Close()
+	var handler callback.Handler = asyncHandler
+
+	// Resolve strategy: --strategy flag takes precedence over legacy --architect.
+	stratName := strings.ToLower(strings.TrimSpace(*strategyFlag))
+	if stratName == "" && *architect {
+		stratName = "architect"
+	}
+	strat := pickStrategy(stratName)
+
+	// Resolve memory type from --memory flag.
+	mem := buildMemory(*memoryFlag, client, strings.TrimSpace(*modelFlag))
+
+	// Resolve env overrides for new RAM-limiting flags.
+	maxHistory := *maxHistoryFlag
+	if maxHistory == 40 {
+		if v := strings.TrimSpace(os.Getenv("CHEESERAG_MAX_HISTORY")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				maxHistory = n
+			}
+		}
+	}
+	maxObsBytes := *maxObsBytesFlag
+	if maxObsBytes == 16384 {
+		if v := strings.TrimSpace(os.Getenv("CHEESERAG_MAX_OBS_BYTES")); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				maxObsBytes = n
+			}
+		}
+	}
+
 	opts := []agent.ExecutorOption{
-		agent.WithStrategy(agent.NewReActStrategy()),
+		agent.WithStrategy(strat),
+		agent.WithMemory(mem),
 		agent.WithCallbacks(handler),
 		agent.WithMaxSteps(maxSteps),
+		agent.WithMaxHistory(maxHistory),
+		agent.WithMaxObservationBytes(maxObsBytes),
 	}
 	if strings.TrimSpace(*modelFlag) != "" {
 		opts = append(opts, agent.WithModel(strings.TrimSpace(*modelFlag)))
 	}
 	executor := agent.NewExecutor(client, reg, opts...)
+
+	// Wire up checkpoint system if --checkpoint-dir is set.
+	if cpDir := strings.TrimSpace(*checkpointDirFlag); cpDir != "" {
+		if err := os.MkdirAll(cpDir, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot create checkpoint dir: %v\n", err)
+		} else {
+			cpFile := filepath.Join(cpDir, fmt.Sprintf("checkpoint-%d.json", time.Now().Unix()))
+			executor.EnableCheckpointing(cpFile, *checkpointEveryFlag)
+		}
+	}
+	// Resume from checkpoint if --resume-checkpoint is set.
+	if cpPath := strings.TrimSpace(*resumeCheckpointFlag); cpPath != "" {
+		ckpt, err := agent.LoadCheckpoint(cpPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: cannot load checkpoint %s: %v\n", cpPath, err)
+		} else {
+			if err := executor.RestoreCheckpoint(ckpt); err != nil {
+				fmt.Fprintf(os.Stderr, "[cheese] warning: cannot restore checkpoint: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "[cheese] Resumed from checkpoint: step=%d goal=%q\n", ckpt.Step, ckpt.Goal)
+			}
+		}
+	}
 
 	// Build goal prefix
 	goalPrefix := ""
@@ -169,8 +310,8 @@ func main() {
 	} else if minimalTools {
 		goalPrefix = "RAG & Tool Guidance:\n" +
 			"- Decide if you need tools. For greetings, general chat, or basic logic, answer DIRECTLY without tools.\n" +
-			"- For project-specific facts or code details, search local files or the PomaiDB store.\n" +
-			"- For broad public facts NOT in the project, use Wikipedia.\n" +
+			"- CRITICAL: To ANSWER QUESTIONS based on the database or ingested documents, ALWAYS use the rag_retrieve tool.\n" +
+			"- CRITICAL: To SEARCH THE CODEBASE semantically (e.g. finding functions, logic), ALWAYS use the rag_retrieve_code tool.\n" +
 			"- Use the JSON field \"query\" for tool arguments (matching the user's question, not literal placeholders).\n" +
 			"- If a tool tells you something is missing, stop searching and inform the user."
 	} else if *autonomous {
@@ -187,6 +328,8 @@ func main() {
 		goalPrefix = "You have access to filesystem tools (read_file, write_file, list_dir, search_files) " +
 			"and git_context to understand and modify the codebase. Use them proactively."
 	}
+	
+	goalPrefix += ambientWorkspaceContext()
 
 	// --continue: prepend prior goal/answer as context.
 	if *continueFrom != "" {
@@ -247,6 +390,40 @@ func main() {
 		}
 	}
 
+	// --panel mode: run goal through a multi-role panel instead of a single executor.
+	if *panelFlag {
+		roles := panel.NewClientsForRoles(panel.ParseRoles(*panelRolesFlag))
+		synthMode := panel.SynthMode(*panelSynthFlag)
+		perRoleSteps := maxSteps / 2
+		if perRoleSteps < 3 {
+			perRoleSteps = 3
+		}
+		panelOpts := []panel.PanelOption{
+			panel.WithSynthMode(synthMode),
+			panel.WithPanelMaxSteps(perRoleSteps),
+			panel.WithPanelModel(strings.TrimSpace(*modelFlag)),
+			panel.WithPanelCallbacks(handler),
+			panel.WithPanelDisplay(os.Stderr),
+		}
+		if *panelIterativeFlag {
+			panelOpts = append(panelOpts, panel.WithIterativeRefinement(true))
+		}
+		p := panel.NewPanel(client, reg, roles, panelOpts...)
+		result, err := p.Run(ctx, userGoal)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "panel error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println()
+		fmt.Println(result.Format())
+		if metricsHandler != nil {
+			m := metricsHandler.Snapshot()
+			fmt.Printf("Metrics:     tokens≈%d tool_calls=%d total_duration=%s\n",
+				m.TotalTokens, m.ToolCallCount, m.TotalDuration.Round(time.Millisecond))
+		}
+		return
+	}
+
 	events, path := executor.Run(ctx, goal)
 	for ev := range events {
 		if ev.Type == agent.EventFinalAnswer {
@@ -266,6 +443,11 @@ func main() {
 	}
 	fmt.Printf("\nRun summary: status=%s steps=%d tool_calls=%d duration=%s\n",
 		path.Status, steps, toolCalls, dur.Round(time.Millisecond))
+	if metricsHandler != nil {
+		m := metricsHandler.Snapshot()
+		fmt.Printf("Metrics:     tokens≈%d tool_calls=%d total_duration=%s\n",
+			m.TotalTokens, m.ToolCallCount, m.TotalDuration.Round(time.Millisecond))
+	}
 	if rp := strings.TrimSpace(*reportPath); rp != "" {
 		if err := writeRunReport(rp, path, dur, userGoal); err != nil {
 			fmt.Fprintf(os.Stderr, "report write failed: %v\n", err)
@@ -461,5 +643,81 @@ func inferStopReason(p *agent.CrabPath, failedToolCalls int) string {
 		return "model_or_runtime_failure"
 	default:
 		return "unknown"
+	}
+}
+
+func ambientWorkspaceContext() string {
+	cmd := exec.Command("git", "status", "-s")
+	out, err := cmd.Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return ""
+	}
+	return "\n\n[Active Workspace Context - Uncommitted Changes]\n" + string(out) + "\n"
+}
+
+// buildMemory constructs the appropriate Memory implementation from the flag value.
+func buildMemory(memType string, client *llm.Client, model string) memory.Memory {
+	switch strings.ToLower(strings.TrimSpace(memType)) {
+	case "file":
+		m, err := memory.NewFileMemory(".cheeserag_memory.json")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: could not open file memory: %v; falling back to buffer\n", err)
+			return memory.NewBufferMemory()
+		}
+		return m
+	case "vector":
+		embedFn := makeEmbedFunc(client)
+		// maxEntries=500 caps embedding RAM at ~1.5 MB; maxTokens=4096 budgets Retrieve output.
+		return memory.NewBoundedVectorMemory(embedFn, 4096, 500)
+	case "summary":
+		// SummaryMemory wraps BufferMemory and auto-compresses via LLM when the
+		// conversation exceeds ~8 192 chars (tokenLimit=2048 × 4).
+		return memory.NewSummaryMemory(memory.NewBoundedBufferMemory(200), client, model, 2048)
+	case "sliding":
+		return memory.NewSlidingWindowMemory(30)
+	default:
+		// Bounded buffer: keeps at most 200 messages; evicts oldest (FIFO).
+		return memory.NewBoundedBufferMemory(200)
+	}
+}
+
+// makeEmbedFunc returns an EmbedFunc that calls Cheesebrain's /v1/embeddings endpoint.
+func makeEmbedFunc(client *llm.Client) memory.EmbedFunc {
+	baseURL := strings.TrimRight(cheesebrainURL(), "/")
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+
+	return func(text string) ([]float32, error) {
+		payload := map[string]any{"input": text}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequest(http.MethodPost, baseURL+"/v1/embeddings", bytes.NewReader(b))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		var result struct {
+			Data []struct {
+				Embedding []float32 `json:"embedding"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, err
+		}
+		if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+			return nil, fmt.Errorf("embeddings endpoint returned empty embedding")
+		}
+		_ = client // referenced to avoid unused import if client is only used here
+		return result.Data[0].Embedding, nil
 	}
 }

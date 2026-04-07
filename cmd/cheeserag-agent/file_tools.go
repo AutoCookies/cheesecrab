@@ -95,7 +95,8 @@ type WriteFileTool struct{}
 func NewWriteFileTool() *WriteFileTool { return &WriteFileTool{} }
 
 func (t *WriteFileTool) Name() string      { return "write_file" }
-func (t *WriteFileTool) Dangerous() bool   { return true }
+func (t *WriteFileTool) Dangerous() bool  { return true }
+func (t *WriteFileTool) DangerLevel() int { return 2 }
 func (t *WriteFileTool) Description() string {
 	return "Create a new file or overwrite an existing one with new content. Use this to save your work, create scripts, or update project files."
 }

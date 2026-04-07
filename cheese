@@ -8,6 +8,9 @@ export PATH="$ROOT/third_party/cheesebrain/build/bin:$PATH"
 
 # 1. Setup Environment
 source "$ROOT/scripts/rag_env.sh"
+if [ -d "$ROOT/.venv" ]; then
+    source "$ROOT/.venv/bin/activate"
+fi
 
 # 2. Find Model
 MODEL_PATH="${1:-}"
@@ -37,9 +40,9 @@ echo -e "\x1b[90m[cheese] Starting Cheesebrain server...\x1b[0m"
 cheese-server --embeddings --pooling mean -m "$MODEL_PATH" --port 8080 > /dev/null 2>&1 &
 SERVER_PID=$!
 
-# 5. Start RAG Facade
-echo -e "\x1b[90m[cheese] Starting RAG Facade...\x1b[0m"
-python3 -m rag_facade.server > /dev/null 2>&1 &
+# 5. Start RAG FastAPI Orchestrator
+echo -e "\x1b[90m[cheese] Starting FastAPI Orchestrator...\x1b[0m"
+python3 -m cheese_api.server > /dev/null 2>&1 &
 FACADE_PID=$!
 
 # 6. Wait for Healthy

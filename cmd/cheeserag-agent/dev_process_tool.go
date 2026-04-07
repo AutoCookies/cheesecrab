@@ -48,9 +48,11 @@ func (t *ProcLogsTool) Name() string    { return "proc_logs" }
 func (t *ProcStopTool) Name() string    { return "proc_stop" }
 func (t *ProcListTool) Name() string    { return "proc_list" }
 func (t *ProcStartTool) Dangerous() bool  { return true }
+func (t *ProcStartTool) DangerLevel() int { return 2 }
 func (t *ProcStatusTool) Dangerous() bool { return false }
 func (t *ProcLogsTool) Dangerous() bool   { return false }
 func (t *ProcStopTool) Dangerous() bool   { return true }
+func (t *ProcStopTool) DangerLevel() int  { return 3 }
 func (t *ProcListTool) Dangerous() bool   { return false }
 
 func (t *ProcStartTool) Description() string {

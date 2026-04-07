@@ -55,8 +55,8 @@ func (t *RAGRetrieveTool) Description() string {
 }
 
 func (t *RAGFetchWikipediaTool) Description() string {
-	return "Fetch a summary of a topic from Wikipedia and ingest it into the local store for future retrieval. " +
-		"Use this for general public knowledge if rag_retrieve fails or if you know the topic is on Wikipedia."
+	return "Fetch a summary of a topic from Wikipedia and save it for future retrieval. " +
+		"Use this for general public knowledge. NEVER use this tool to parse local files or PDFs."
 }
 
 func (t *RAGRetrieveTool) Schema() map[string]any {
@@ -169,6 +169,11 @@ func (t *RAGRetrieveTool) retrieveOnce(ctx context.Context, body map[string]any)
 		return out, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	apiKey := os.Getenv("CHEESE_API_KEY")
+	if apiKey == "" {
+		apiKey = "cheese-admin-key"
+	}
+	req.Header.Set("X-API-Key", apiKey)
 	resp, err := doRequestWithRetry(ctx, t.client, req, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return out, err
@@ -351,19 +356,20 @@ func (t *RAGFetchWikipediaTool) fetchWikipediaExtract(ctx context.Context, lang,
 }
 
 func (t *RAGFetchWikipediaTool) ingestText(ctx context.Context, docID int, text string) error {
-	body := map[string]any{
-		"doc_id": docID,
-		"text":   text,
-	}
-	raw, err := json.Marshal(body)
+	formData := url.Values{}
+	formData.Set("doc_id", strconv.Itoa(docID))
+	formData.Set("text", text)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+"/v1/ingest", strings.NewReader(formData.Encode()))
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.base+"/v1/ingest", bytes.NewReader(raw))
-	if err != nil {
-		return err
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	apiKey := os.Getenv("CHEESE_API_KEY")
+	if apiKey == "" {
+		apiKey = "cheese-admin-key"
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", apiKey)
 	resp, err := doRequestWithRetry(ctx, t.client, req, ragRetryCount(), 300*time.Millisecond)
 	if err != nil {
 		return err
