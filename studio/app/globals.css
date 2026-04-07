@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --panel-bg: #1a1a1a;
+  --panel-border: #2d2d2d;
+  --surface: #242424;
+  --surface-hover: #2e2e2e;
+  --text-primary: #f0f0f0;
+  --text-muted: #888;
+  --accent: #f59e0b;
+  --accent-dim: #b45309;
+}
+
+html, body {
+  height: 100%;
+  background: var(--panel-bg);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--panel-bg); }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #666; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+
+.citation-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #000;
+  cursor: pointer;
+  margin: 0 2px;
+  vertical-align: super;
+  transition: background 0.15s;
+}
+
+.citation-marker:hover { background: var(--accent-dim); }
+
+.not-found-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #3f2d2d;
+  border: 1px solid #7f3c3c;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #f87171;
+}
