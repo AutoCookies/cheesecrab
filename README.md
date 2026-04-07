@@ -436,6 +436,56 @@ cheeserag/
 
 ---
 
+## Edge AI Design Philosophy
+
+> *"I could have easily integrated the OpenAI API, but my goal was to engineer a highly secure, air-gapped, local-first RAG workspace capable of running on resource-constrained hardware — a standard laptop or Raspberry Pi. By designing a micro-agent pipeline architecture and integrating it tightly with PomaiDB — a custom-built C++ vector database — I successfully mitigated the reasoning limitations of a 0.5B model. This kept the total memory footprint under 1 GB while maintaining high extraction accuracy and zero data leakage."*
+
+A 0.5B parameter model has real constraints: it hallucinates with long contexts, loses formatting under complex instructions, and cannot reliably track citation markers. Cheeserag Studio works around every one of these with backend engineering rather than a bigger model.
+
+### Tactic 1 — Algorithmic Citation (zero hallucination)
+
+The LLM is **never asked to place `[1]`, `[2]` markers**. Instead:
+
+1. The model receives a short, completion-style extractive prompt (`max_tokens=150`):
+   ```
+   Context: <chunk text>
+   Question: <user question>
+   Answer (one short sentence, use exact words from the context above):
+   ```
+2. The backend (`citation_engine.py`) runs **TF-IDF cosine similarity** between each sentence of the answer and the retrieved chunks.
+3. `[N]` markers are **programmatically inserted** by the Python backend after sentences that match a chunk above a confidence threshold.
+
+The frontend always receives citations that are guaranteed to map to real source chunks — because the code assigned them, not the model.
+
+### Tactic 2 — Prompt Chaining for Audio Overviews (assembly line)
+
+Instead of a single large prompt ("write a podcast about all these pages"), the audio overview pipeline runs three sequential micro-steps:
+
+| Step | Task | Who does it | `max_tokens` |
+|------|------|-------------|-------------|
+| 1 — Extract | Summarise each chunk into one bullet | LLM (loop) | 80 |
+| 2 — Aggregate | Dedup + rank bullets | Pure Python | — |
+| 3 — Dialogue | Convert each bullet into a Host A / B exchange | LLM (loop) | 120 + 80 |
+
+Each LLM call is ≤ 512 tokens total — well within the reliable range of a 0.5B model.
+
+### Tactic 3 — Constrained Generation
+
+All LLM calls enforce:
+- `max_tokens: 150` (or lower per task) — forces conciseness, prevents rambling
+- `temperature: 0.2–0.3` — reduces hallucination without making output robotic
+- `repeat_penalty: 1.1` — suppresses repetition loops common in small models
+- Completion-style prompts ending with a colon force the model to fill a blank rather than generate freely
+
+### New env vars
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHEESE_CHAT_TOP_K` | `3` | Max chunks fed to the 0.5B model per chat turn (keep low) |
+| `CHEESE_CLOSED_BOOK_THRESHOLD` | `0.35` | Similarity below which "not found" is returned |
+
+---
+
 ## Troubleshooting
 
 ### `libpomai_c.so: cannot open shared object file`

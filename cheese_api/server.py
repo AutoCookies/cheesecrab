@@ -38,6 +38,7 @@ from .pomaidb_extra import (
     store_doc_meta,
 )
 from .workspace_indexer import get_symbol_map, index_project_workspace, index_single_file
+from .citation_engine import assign_citations, strip_llm_citation_artifacts
 from . import audio_overview as _audio
 
 # ---------------------------------------------------------------------------
@@ -93,6 +94,31 @@ def _cheesebrain_url() -> str:
 
 def _emb_model() -> str:
     return os.environ.get("CHEESE_EMBEDDING_MODEL", "").strip()
+
+
+def _llm_complete(prompt: str, max_tokens: int = 150) -> str:
+    """
+    Single-turn, non-streaming LLM call with tight token budget.
+    Uses completion-style: the prompt ends with a partial sentence the model
+    is forced to finish, keeping a 0.5B model on task.
+    """
+    model = os.environ.get("CHEESE_CHAT_MODEL", "")
+    body: dict = {
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0.2,       # low temperature = less rambling
+        "repeat_penalty": 1.1,    # suppress repetition loops
+        "stream": False,
+    }
+    if model:
+        body["model"] = model
+    resp = _requests.post(
+        f"{_cheesebrain_url()}/v1/chat/completions",
+        json=body,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"].strip()
 
 
 def _ensure_db(hint_from_vector: Optional[List[float]] = None):
@@ -526,12 +552,26 @@ def retrieve(req: RetrieveRequest, api_key: str = Depends(get_api_key)):
 
 @app.post("/v1/chat")
 def chat(req: ChatRequest, api_key: str = Depends(get_api_key)):
+    """
+    Two-phase closed-book chat optimised for 0.5B models:
+
+    Phase A — Extractive LLM call (constrained, non-streaming):
+        The model is given a completion-style prompt with a hard max_tokens=150
+        and asked to copy the answer verbatim from the context.
+        This keeps the 0.5B model on-task and prevents hallucination.
+
+    Phase B — Algorithmic citation assignment (backend, no LLM):
+        citation_engine.py matches each answer sentence to retrieved chunks
+        via TF-IDF cosine similarity and programmatically inserts [N] markers.
+        The LLM never touches citation logic.
+    """
     cheese = _cheesebrain_url()
     emb = _emb_model()
     membrane = _rag_membrane(req.workspace_id)
     meta_mem = _meta_membrane(req.workspace_id)
 
-    # 1. Retrieve top-k chunks
+    # ── Step 1: Retrieve top-3 chunks ────────────────────────────────────────
+    # Keeping top_k=3 limits context to what a 0.5B model can handle reliably.
     v = fetch_embedding(cheese, req.message, model=emb)
     with _db_lock:
         db = _ensure_db(hint_from_vector=v)
@@ -539,7 +579,7 @@ def chat(req: ChatRequest, api_key: str = Depends(get_api_key)):
             db, membrane,
             vector=v,
             text_query=req.message,
-            top_k=5,
+            top_k=int(os.environ.get("CHEESE_CHAT_TOP_K", "3")),
             ef=int(os.environ.get("RAG_EF_SEARCH", "128")),
         )
 
@@ -557,69 +597,46 @@ def chat(req: ChatRequest, api_key: str = Depends(get_api_key)):
 
     max_score = max((h["score"] for h in hits if h["text"]), default=0.0)
 
-    # 2. Closed-book policy
+    # ── Step 2: Closed-book gate ──────────────────────────────────────────────
     if max_score < CLOSED_BOOK_THRESHOLD or not any(h["text"] for h in hits):
         def _not_found():
-            payload = json.dumps({
-                "type": "not_found",
-                "content": "I cannot find this information in the uploaded documents.",
-                "citations": [],
-            })
-            yield f"data: {payload}\n\n"
+            yield f"data: {json.dumps({'type': 'not_found', 'content': 'I cannot find this information in the uploaded documents.', 'citations': []})}\n\n"
             yield "data: [DONE]\n\n"
-
         return StreamingResponse(_not_found(), media_type="text/event-stream")
 
-    # 3. Build grounded system prompt
-    context_block = ""
-    for i, h in enumerate(hits, 1):
-        if h["text"]:
-            context_block += f"[{i}] {h['text']}\n\n"
-
-    system_prompt = (
-        "You are a helpful research assistant. "
-        "Answer ONLY using the context provided below. "
-        "If the answer is not in the context, say so explicitly. "
-        "Cite sources using [N] footnote markers after relevant sentences.\n\n"
-        f"Context:\n{context_block.strip()}"
+    # ── Step 3 (Phase A): Extractive LLM call — constrained, no streaming ────
+    # Cap each chunk at 400 chars to keep total prompt under 0.5B context limit.
+    context_block = "\n\n".join(
+        h["text"][:400] for h in hits if h["text"]
+    )
+    # Completion-style prompt: model fills in the blank after the colon.
+    extractive_prompt = (
+        f"Context:\n{context_block}\n\n"
+        f"Question: {req.message}\n"
+        f"Answer (one short sentence, use exact words from the context above):"
     )
 
-    messages = [{"role": "system", "content": system_prompt}]
-    for turn in req.history:
-        messages.append({"role": turn.role, "content": turn.content})
-    messages.append({"role": "user", "content": req.message})
+    try:
+        raw_answer = _llm_complete(extractive_prompt, max_tokens=150)
+    except Exception as e:
+        raw_answer = f"(extraction failed: {e})"
 
-    citations = [h["citation"] for h in hits if h["text"] and h["citation"]]
+    # Remove any [N] markers the model may have hallucinated
+    clean_answer = strip_llm_citation_artifacts(raw_answer)
 
-    # 4. Stream from Cheesebrain
+    # ── Step 4 (Phase B): Algorithmic citation assignment — backend only ──────
+    annotated_answer, citations = assign_citations(clean_answer, hits)
+
+    # ── Step 5: Stream the final annotated answer token-by-token ─────────────
     def _stream():
-        # Emit citations first as a metadata event
+        # Citations are assigned before streaming starts — guaranteed accuracy
         yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
 
-        try:
-            resp = _requests.post(
-                f"{cheese}/v1/chat/completions",
-                json={"model": os.environ.get("CHEESE_CHAT_MODEL", ""), "messages": messages, "stream": True},
-                stream=True,
-                timeout=120,
-            )
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                line = line.decode("utf-8") if isinstance(line, bytes) else line
-                if line.startswith("data: "):
-                    payload = line[6:]
-                    if payload.strip() == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(payload)
-                        delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                        if delta:
-                            yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
-                    except Exception:
-                        pass
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        # Simulate streaming by yielding word-by-word (avoids a second LLM call)
+        words = annotated_answer.split(" ")
+        for i, word in enumerate(words):
+            chunk = word if i == len(words) - 1 else word + " "
+            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
 
         yield "data: [DONE]\n\n"
 
@@ -713,13 +730,16 @@ class AudioOverviewRequest(BaseModel):
 
 @app.post("/v1/audio_overview")
 def start_audio_overview(req: AudioOverviewRequest, api_key: str = Depends(get_api_key)):
+    """
+    Retrieve top-k chunks then kick off the 3-step prompt chain.
+    Passes individual chunk texts (not one big blob) so the pipeline
+    can feed each chunk to the 0.5B model one at a time.
+    """
     cheese = _cheesebrain_url()
     emb = _emb_model()
     membrane = _rag_membrane(req.workspace_id)
 
-    # Retrieve broad context for script generation
-    from .embeddings import fetch_embedding as _fe
-    v = _fe(cheese, "summarize the main topics and key findings", model=emb)
+    v = fetch_embedding(cheese, "summarize the main topics and key findings", model=emb)
     with _db_lock:
         db = _ensure_db(hint_from_vector=v)
         res = pomaidb.search_rag_membrane(
@@ -727,16 +747,16 @@ def start_audio_overview(req: AudioOverviewRequest, api_key: str = Depends(get_a
             top_k=req.top_k, ef=int(os.environ.get("RAG_EF_SEARCH", "128")),
         )
 
-    context_parts = []
+    # Pass individual chunks — not one concatenated blob
+    chunks = []
     if isinstance(res, list):
         for r in res:
             t = str(r.get("text", ""))
             if t:
-                context_parts.append(t)
-    context_text = "\n\n".join(context_parts)
+                chunks.append(t)
 
     job_id = uuid.uuid4().hex
-    _audio.start_overview_job(job_id, req.workspace_id, context_text)
+    _audio.start_overview_job(job_id, req.workspace_id, chunks)
     return {"job_id": job_id}
 
 
