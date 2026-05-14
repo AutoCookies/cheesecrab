@@ -67,6 +67,8 @@ func main() {
 	llmRetriesFlag := fs.Int("llm-retries", 3, "number of additional LLM request attempts on transient error (0 = no retries)")
 	llmStreamTimeoutFlag := fs.Int("llm-stream-timeout", 0, "per-stream timeout in seconds (0 = no timeout)")
 	workspaceFlag := fs.String("workspace", strings.TrimSpace(os.Getenv("CHEESERAG_EXEC_ROOT")), "project/folder root the agent may interact with; filesystem tools are restricted inside it")
+	skillsDirFlag := fs.String("skills-dir", strings.TrimSpace(os.Getenv("CHEESERAG_SKILLS_DIR")), "directory containing skills/<name>/SKILL.md (default: .cheese/skills in workspace)")
+	pluginsDirFlag := fs.String("plugins-dir", strings.TrimSpace(os.Getenv("CHEESERAG_PLUGINS_DIR")), "directory containing plugins/<name>/plugin.json (default: plugins in CheeseRAG install)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -75,6 +77,7 @@ func main() {
 	_ = fs.Parse(os.Args[1:])
 	goalArgs := fs.Args()
 	userGoal := strings.Join(goalArgs, " ")
+	startupDir, _ := os.Getwd()
 
 	if workspaceRoot, err := configureWorkspaceRoot(*workspaceFlag); err != nil {
 		fmt.Fprintf(os.Stderr, "workspace error: %v\n", err)
@@ -84,6 +87,8 @@ func main() {
 	}
 
 	autoApprove := *yesAll || !*confirmDangerous
+	skillsDir, pluginsDir := resolveExtensionDirs(*skillsDirFlag, *pluginsDirFlag, startupDir)
+	extensions := LoadExtensions(skillsDir, pluginsDir)
 
 	llmURL := cheesebrainURL()
 	registryURL := strings.TrimSpace(os.Getenv("CHEESECRAB_REGISTRY_URL"))
@@ -211,6 +216,11 @@ func main() {
 
 	// Register client-dependent tools now that client is available.
 	// sub_agent and critic_review need the LLM client; web_search is standalone.
+	reg.Register(NewListSkillsTool(extensions.Skills))
+	reg.Register(NewReadSkillTool(extensions.Skills))
+	for _, p := range extensions.Plugins {
+		reg.Register(wrap(p, autoApprove))
+	}
 	reg.Register(NewWebSearchTool(5))
 	reg.Register(NewCriticReviewTool(client, strings.TrimSpace(*modelFlag)))
 	if *autonomous || *fullTools {
@@ -338,6 +348,7 @@ func main() {
 	}
 
 	goalPrefix += ambientWorkspaceContext()
+	goalPrefix += extensionsPrompt(extensions, skillsDir, pluginsDir)
 
 	// --continue: prepend prior goal/answer as context.
 	if *continueFrom != "" {
@@ -359,7 +370,7 @@ func main() {
 				os.Exit(1)
 			}
 		}
-		runChatMode(executor, goalPrefix, timeoutSec)
+		runChatMode(executor, goalPrefix, timeoutSec, extensions)
 		return
 	}
 

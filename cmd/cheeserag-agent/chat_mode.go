@@ -126,7 +126,7 @@ func (h *chatHistory) buildContext() string {
 }
 
 // runChatMode runs the interactive REPL. Called from main when --chat is set.
-func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int) {
+func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int, extensions ExtensionCatalog) {
 	history := &chatHistory{maxN: 20, pins: make(map[string]string), pinOrder: nil}
 	loadPersonalHistory(history)
 	sc := bufio.NewScanner(os.Stdin)
@@ -343,6 +343,42 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				fmt.Printf("  [%02d] %-22s%s  %s\n", i+1, t.Name(), danger, desc)
 			}
 			continue
+		case "/skills":
+			if len(extensions.Skills) == 0 {
+				fmt.Println("\x1b[90m(no installed skills)\x1b[0m")
+			} else {
+				for _, s := range extensions.Skills {
+					fmt.Printf("  %-20s %s\n", s.Name, s.Description)
+				}
+			}
+			continue
+		case "/skill":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				fmt.Println("\x1b[31mUsage: /skill <name>\x1b[0m")
+				continue
+			}
+			tool := NewReadSkillTool(extensions.Skills)
+			out, err := tool.Execute(context.Background(), map[string]any{"name": fields[1]})
+			if err != nil {
+				fmt.Printf("\x1b[31mError: %v\x1b[0m\n", err)
+			} else {
+				fmt.Println(out)
+			}
+			continue
+		case "/plugins":
+			if len(extensions.Plugins) == 0 {
+				fmt.Println("\x1b[90m(no installed plugins)\x1b[0m")
+			} else {
+				for _, p := range extensions.Plugins {
+					danger := ""
+					if p.Dangerous() {
+						danger = " [dangerous]"
+					}
+					fmt.Printf("  %-24s%s %s\n", p.Name(), danger, p.Description())
+				}
+			}
+			continue
 		case "/model":
 			fields := strings.Fields(input)
 			if len(fields) < 2 {
@@ -508,6 +544,9 @@ func printChatHelp() {
 	fmt.Println("  /memory <type>       Switch memory type at runtime")
 	fmt.Println("                         buffer (default), file, vector")
 	fmt.Println("  /tools               List all registered tools (⚠ = dangerous)")
+	fmt.Println("  /skills              List installed local skills")
+	fmt.Println("  /skill <name>        Show one skill's SKILL.md")
+	fmt.Println("  /plugins             List installed plugins")
 	fmt.Println("  /model [name]        Show or switch the LLM model at runtime")
 	fmt.Println("  /save [path]         Save conversation to a markdown file")
 	fmt.Println("  /panel <goal>        Run goal through researcher·critic·planner panel")

@@ -333,11 +333,34 @@ Key flags:
 | `--max-obs-bytes` | `16384` | Max bytes per tool observation stored in history |
 | `--panel-synth` | `llm` | Panel synthesis mode: `concat`, `llm`, `first`, `vote` |
 | `--auto-approve` | `false` | Skip confirmation for dangerous tools |
+| `--workspace` | unset | Restrict filesystem tools and plugin working directories to one project folder |
+| `--skills-dir` | `.cheese/skills` | Load local skills from `.cheese/skills/<name>/SKILL.md` in the selected workspace |
+| `--plugins-dir` | `plugins` in CheeseRAG install | Load command plugins from the CheeseRAG installation, independent of the selected workspace |
+
+### Skills and plugins
+
+Skills are local instruction packs. Add a file like:
+
+```text
+.cheese/skills/my-skill/SKILL.md
+```
+
+Plugins are command-backed tools. Add a manifest like:
+
+```text
+plugins/my-plugin/plugin.json
+```
+
+Each plugin becomes a tool named `plugin_<name>`. Plugin arguments are sent as JSON on stdin and in `CHEESERAG_PLUGIN_ARGS`. See [docs/extensions.md](docs/extensions.md) for the manifest format and examples.
 
 ### Slash commands inside the agent
 
 | Command | Description |
 |---------|-------------|
+| `/workspace [folder]` | Show or set the project folder boundary |
+| `/skills` | List installed local skills |
+| `/skill <name>` | Print one skill's `SKILL.md` |
+| `/plugins` | List installed plugin tools |
 | `/ingest <file>` | Ingest a file into the RAG database |
 | `/pin <file>` | Pin a file's content into session context (8 KB cap) |
 | `/unpin <file>` | Remove a pinned file |
