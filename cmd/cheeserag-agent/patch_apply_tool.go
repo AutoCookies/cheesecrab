@@ -48,6 +48,9 @@ func (t *PatchApplyTool) Execute(_ context.Context, args map[string]any) (string
 	if strings.TrimSpace(patchStr) == "" {
 		return "", fmt.Errorf("patch_apply: patch is required")
 	}
+	if err := ensureAllowedPath(filePath); err != nil {
+		return "", err
+	}
 
 	// Snapshot original content for rollback.
 	origBytes, err := os.ReadFile(filePath)
@@ -95,7 +98,7 @@ func applyUnifiedDiff(src, patch string) (string, error) {
 	patchLines := strings.Split(patch, "\n")
 
 	hunkNum := 0
-	i := 0 // current position in patchLines
+	i := 0      // current position in patchLines
 	offset := 0 // cumulative line offset from previous hunks
 
 	for i < len(patchLines) {
@@ -177,7 +180,7 @@ func applyUnifiedDiff(src, patch string) (string, error) {
 
 			// Lines after this hunk.
 			newLines = append(newLines, lines[pos+consumed:]...)
-			offset += len(newLines) - len(lines) - (pos - (oldStart-1+offset)) - 1
+			offset += len(newLines) - len(lines) - (pos - (oldStart - 1 + offset)) - 1
 			// Reconstruct: replace lines with newLines for next hunk.
 			_ = oldCount // validated implicitly by context matching
 			lines = newLines

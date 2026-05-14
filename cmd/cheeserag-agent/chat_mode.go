@@ -196,6 +196,24 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				}
 			}
 			continue
+		case "/workspace":
+			fields := strings.Fields(input)
+			if len(fields) < 2 {
+				if root := currentWorkspaceRoot(); root != "" {
+					fmt.Printf("\x1b[90m[cheese] Current workspace: %s\x1b[0m\n", root)
+				} else {
+					fmt.Println("\x1b[90m[cheese] No workspace root set. Use /workspace <folder>.\x1b[0m")
+				}
+				continue
+			}
+			path := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
+			root, err := configureWorkspaceRoot(path)
+			if err != nil {
+				fmt.Printf("\x1b[31mWorkspace error: %v\x1b[0m\n", err)
+			} else {
+				fmt.Printf("\x1b[32m[cheese] Workspace set to: %s\x1b[0m\n", root)
+			}
+			continue
 		case "/ingest":
 			fields := strings.Fields(input)
 			if len(fields) < 2 {
@@ -236,6 +254,10 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 				continue
 			}
 			path := fields[1]
+			if err := ensureAllowedPath(path); err != nil {
+				fmt.Printf("\x1b[31mError reading file: %v\x1b[0m\n", err)
+				continue
+			}
 			b, err := os.ReadFile(path)
 			if err != nil {
 				fmt.Printf("\x1b[31mError reading file: %v\x1b[0m\n", err)
@@ -335,6 +357,10 @@ func runChatMode(executor *agent.Executor, baseGoalPrefix string, timeoutSec int
 			savePath := fmt.Sprintf("cheeserag-chat-%d.md", time.Now().Unix())
 			if len(fields) >= 2 {
 				savePath = fields[1]
+			}
+			if err := ensureAllowedPath(savePath); err != nil {
+				fmt.Printf("\x1b[31mError saving: %v\x1b[0m\n", err)
+				continue
 			}
 			if err := saveChatToFile(savePath, history); err != nil {
 				fmt.Printf("\x1b[31mError saving: %v\x1b[0m\n", err)
@@ -470,6 +496,7 @@ func printChatHelp() {
 	fmt.Println("  /exit                Exit chat mode")
 	fmt.Println("  /clear               Clear conversation history")
 	fmt.Println("  /history             Show conversation history")
+	fmt.Println("  /workspace [folder]  Show or set the project folder boundary")
 	fmt.Println("  /ingest <file>       Native file ingestion")
 	fmt.Println("  /diff                Show current git uncommitted changes")
 	fmt.Println("  /map                 List AST-indexed files in workspace")

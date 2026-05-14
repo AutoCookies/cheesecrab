@@ -1,5 +1,12 @@
 pomai.manifest.v3
 version 1
 membrane __default__
+membrane __workspaces__
 membrane rag
-Á‹Ä
+membrane ws_58629a84553c_docs
+membrane ws_58629a84553c_meta
+membrane ws_58629a84553c_rag
+membrane ws_7c3058a67447_docs
+membrane ws_7c3058a67447_meta
+membrane ws_7c3058a67447_rag
+ó‚¹

@@ -28,7 +28,7 @@ func NewLocalExecTool() *LocalExecTool {
 	return &LocalExecTool{defaultTimeout: time.Duration(sec) * time.Second}
 }
 
-func (t *LocalExecTool) Name() string      { return "local_exec" }
+func (t *LocalExecTool) Name() string     { return "local_exec" }
 func (t *LocalExecTool) Dangerous() bool  { return true }
 func (t *LocalExecTool) DangerLevel() int { return 3 }
 func (t *LocalExecTool) Description() string {
@@ -211,9 +211,15 @@ func ensureAllowedCWD(cwd string) error {
 	if err != nil {
 		return err
 	}
+	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
+		rootAbs = resolved
+	}
 	cwdAbs, err := filepath.Abs(cwd)
 	if err != nil {
 		return err
+	}
+	if resolved, err := filepath.EvalSymlinks(cwdAbs); err == nil {
+		cwdAbs = resolved
 	}
 	rel, err := filepath.Rel(rootAbs, cwdAbs)
 	if err != nil {
@@ -224,4 +230,3 @@ func ensureAllowedCWD(cwd string) error {
 	}
 	return nil
 }
-

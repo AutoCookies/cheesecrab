@@ -16,8 +16,8 @@ type ReadFileTool struct{}
 
 func NewReadFileTool() *ReadFileTool { return &ReadFileTool{} }
 
-func (t *ReadFileTool) Name() string      { return "read_file" }
-func (t *ReadFileTool) Dangerous() bool   { return false }
+func (t *ReadFileTool) Name() string    { return "read_file" }
+func (t *ReadFileTool) Dangerous() bool { return false }
 func (t *ReadFileTool) Description() string {
 	return "Read the full text content of a local file. Use this when you need the exact content or code from a specific file. " +
 		"Args: path (required), start_line (optional), end_line (optional)."
@@ -40,8 +40,7 @@ func (t *ReadFileTool) Execute(_ context.Context, args map[string]any) (string, 
 	if path == "" {
 		return "", fmt.Errorf("read_file: path required")
 	}
-	if err := ensureAllowedCWD(filepath.Dir(path)); err != nil {
-		// Only enforce root restriction when CHEESERAG_EXEC_ROOT is set.
+	if err := ensureAllowedPath(path); err != nil {
 		return "", err
 	}
 
@@ -94,7 +93,7 @@ type WriteFileTool struct{}
 
 func NewWriteFileTool() *WriteFileTool { return &WriteFileTool{} }
 
-func (t *WriteFileTool) Name() string      { return "write_file" }
+func (t *WriteFileTool) Name() string     { return "write_file" }
 func (t *WriteFileTool) Dangerous() bool  { return true }
 func (t *WriteFileTool) DangerLevel() int { return 2 }
 func (t *WriteFileTool) Description() string {
@@ -118,7 +117,7 @@ func (t *WriteFileTool) Execute(_ context.Context, args map[string]any) (string,
 	if path == "" {
 		return "", fmt.Errorf("write_file: path required")
 	}
-	if err := ensureAllowedCWD(filepath.Dir(path)); err != nil {
+	if err := ensureAllowedPath(path); err != nil {
 		return "", err
 	}
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
@@ -138,8 +137,8 @@ type ListDirTool struct{}
 
 func NewListDirTool() *ListDirTool { return &ListDirTool{} }
 
-func (t *ListDirTool) Name() string      { return "list_dir" }
-func (t *ListDirTool) Dangerous() bool   { return false }
+func (t *ListDirTool) Name() string    { return "list_dir" }
+func (t *ListDirTool) Dangerous() bool { return false }
 func (t *ListDirTool) Description() string {
 	return "List files and subdirectories. Use this to explore the project structure if you don't know where a file is. " +
 		"Set recursive=true for a deep search."
@@ -221,8 +220,8 @@ type SearchFilesTool struct{}
 
 func NewSearchFilesTool() *SearchFilesTool { return &SearchFilesTool{} }
 
-func (t *SearchFilesTool) Name() string      { return "search_files" }
-func (t *SearchFilesTool) Dangerous() bool   { return false }
+func (t *SearchFilesTool) Name() string    { return "search_files" }
+func (t *SearchFilesTool) Dangerous() bool { return false }
 func (t *SearchFilesTool) Description() string {
 	return "Search files for a regex or literal pattern. " +
 		"Args: pattern (required), path (directory or file, default '.'), " +

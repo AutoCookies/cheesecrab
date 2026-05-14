@@ -58,6 +58,23 @@ func TestReadFileTool_MissingFile(t *testing.T) {
 	}
 }
 
+func TestReadFileTool_BlockedOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	t.Setenv("CHEESERAG_EXEC_ROOT", root)
+	p := filepath.Join(outside, "secret.txt")
+	_ = os.WriteFile(p, []byte("secret"), 0o644)
+
+	tool := NewReadFileTool()
+	_, err := tool.Execute(context.Background(), map[string]any{"path": p})
+	if err == nil {
+		t.Fatal("expected workspace boundary error")
+	}
+	if !strings.Contains(err.Error(), "outside CHEESERAG_EXEC_ROOT") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // ---------- write_file ------------------------------------------------------
 
 func TestWriteFileTool_CreatesFile(t *testing.T) {
@@ -95,6 +112,39 @@ func TestWriteFileTool_CreatesParentDirs(t *testing.T) {
 	}
 	if _, err := os.Stat(p); err != nil {
 		t.Fatalf("file not created: %v", err)
+	}
+}
+
+func TestWriteFileTool_AllowsInsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CHEESERAG_EXEC_ROOT", root)
+	p := filepath.Join(root, "out.txt")
+
+	tool := NewWriteFileTool()
+	if _, err := tool.Execute(context.Background(), map[string]any{
+		"path":    p,
+		"content": "inside",
+	}); err != nil {
+		t.Fatalf("write inside workspace should be allowed: %v", err)
+	}
+}
+
+func TestWriteFileTool_BlocksOutsideWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	t.Setenv("CHEESERAG_EXEC_ROOT", root)
+	p := filepath.Join(outside, "out.txt")
+
+	tool := NewWriteFileTool()
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"path":    p,
+		"content": "outside",
+	})
+	if err == nil {
+		t.Fatal("expected workspace boundary error")
+	}
+	if !strings.Contains(err.Error(), "outside CHEESERAG_EXEC_ROOT") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

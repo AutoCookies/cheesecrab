@@ -15,7 +15,7 @@ type BatchEditTool struct{}
 
 func NewBatchEditTool() *BatchEditTool { return &BatchEditTool{} }
 
-func (t *BatchEditTool) Name() string      { return "batch_edit" }
+func (t *BatchEditTool) Name() string     { return "batch_edit" }
 func (t *BatchEditTool) Dangerous() bool  { return true }
 func (t *BatchEditTool) DangerLevel() int { return 2 }
 func (t *BatchEditTool) Description() string {
@@ -84,6 +84,9 @@ func (t *BatchEditTool) Execute(_ context.Context, args map[string]any) (string,
 		newText, _ := m["new"].(string)
 		if path == "" || old == "" {
 			return "", fmt.Errorf("batch_edit: edits[%d] requires path and old", i)
+		}
+		if err := ensureAllowedPath(path); err != nil {
+			return "", fmt.Errorf("batch_edit: edits[%d]: %w", i, err)
 		}
 		ops = append(ops, editOp{path, old, newText})
 	}

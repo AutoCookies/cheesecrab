@@ -66,6 +66,7 @@ func main() {
 	resumeCheckpointFlag := fs.String("resume-checkpoint", strings.TrimSpace(os.Getenv("CHEESERAG_RESUME_CHECKPOINT")), "path to a checkpoint JSON file to resume from")
 	llmRetriesFlag := fs.Int("llm-retries", 3, "number of additional LLM request attempts on transient error (0 = no retries)")
 	llmStreamTimeoutFlag := fs.Int("llm-stream-timeout", 0, "per-stream timeout in seconds (0 = no timeout)")
+	workspaceFlag := fs.String("workspace", strings.TrimSpace(os.Getenv("CHEESERAG_EXEC_ROOT")), "project/folder root the agent may interact with; filesystem tools are restricted inside it")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -74,6 +75,13 @@ func main() {
 	_ = fs.Parse(os.Args[1:])
 	goalArgs := fs.Args()
 	userGoal := strings.Join(goalArgs, " ")
+
+	if workspaceRoot, err := configureWorkspaceRoot(*workspaceFlag); err != nil {
+		fmt.Fprintf(os.Stderr, "workspace error: %v\n", err)
+		os.Exit(2)
+	} else if workspaceRoot != "" && !*quietStartup {
+		fmt.Fprintf(os.Stderr, "[cheese] workspace root: %s\n", workspaceRoot)
+	}
 
 	autoApprove := *yesAll || !*confirmDangerous
 
@@ -328,7 +336,7 @@ func main() {
 		goalPrefix = "You have access to filesystem tools (read_file, write_file, list_dir, search_files) " +
 			"and git_context to understand and modify the codebase. Use them proactively."
 	}
-	
+
 	goalPrefix += ambientWorkspaceContext()
 
 	// --continue: prepend prior goal/answer as context.
@@ -647,12 +655,25 @@ func inferStopReason(p *agent.CrabPath, failedToolCalls int) string {
 }
 
 func ambientWorkspaceContext() string {
+	root := currentWorkspaceRoot()
 	cmd := exec.Command("git", "status", "-s")
-	out, err := cmd.Output()
-	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		return ""
+	if root != "" {
+		cmd.Dir = root
 	}
-	return "\n\n[Active Workspace Context - Uncommitted Changes]\n" + string(out) + "\n"
+	out, err := cmd.Output()
+	var sb strings.Builder
+	if root != "" {
+		sb.WriteString("\n\n[Active Workspace Root]\n")
+		sb.WriteString(root)
+		sb.WriteString("\nThe agent must keep all file reads, writes, patches, searches, and shell working directories inside this folder.\n")
+	}
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return sb.String()
+	}
+	sb.WriteString("\n\n[Active Workspace Context - Uncommitted Changes]\n")
+	sb.Write(out)
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // buildMemory constructs the appropriate Memory implementation from the flag value.

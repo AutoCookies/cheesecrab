@@ -1,2 +1,6 @@
 {"timestamp": "2026-03-29T06:39:32.849758Z", "action": "INGEST", "details": {"doc_id": 123, "chunks_added": 19, "bytes_processed": 8319}}
 {"timestamp": "2026-03-29T06:40:44.603548Z", "action": "INGEST", "details": {"doc_id": 123, "chunks_added": 19, "bytes_processed": 8319}}
+{"timestamp": "2026-04-07T06:55:47.941659Z", "action": "WORKSPACE_CREATE", "details": {"id": "58629a84553c", "name": "test"}}
+{"timestamp": "2026-04-07T06:56:52.820269Z", "action": "INGEST", "details": {"doc_id": 1775544954988, "workspace": "58629a84553c", "chunks_added": 21, "file": "Quan-Van-TopCV.vn-290326.00635.pdf"}}
+{"timestamp": "2026-05-14T14:15:39.014217Z", "action": "WORKSPACE_CREATE", "details": {"id": "7c3058a67447", "name": "startup-check"}}
+{"timestamp": "2026-05-14T14:16:32.193660Z", "action": "WORKSPACE_DELETE", "details": {"id": "7c3058a67447"}}
