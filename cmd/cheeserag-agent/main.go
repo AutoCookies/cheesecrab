@@ -69,6 +69,8 @@ func main() {
 	workspaceFlag := fs.String("workspace", strings.TrimSpace(os.Getenv("CHEESERAG_EXEC_ROOT")), "project/folder root the agent may interact with; filesystem tools are restricted inside it")
 	skillsDirFlag := fs.String("skills-dir", strings.TrimSpace(os.Getenv("CHEESERAG_SKILLS_DIR")), "directory containing skills/<name>/SKILL.md (default: .cheese/skills in workspace)")
 	pluginsDirFlag := fs.String("plugins-dir", strings.TrimSpace(os.Getenv("CHEESERAG_PLUGINS_DIR")), "directory containing plugins/<name>/plugin.json (default: plugins in CheeseRAG install)")
+	openapiURL := fs.String("openapi-url", strings.TrimSpace(os.Getenv("CHEESERAG_OPENAPI_URL")), "URL to an OpenAPI/Swagger JSON spec to dynamically load API tools")
+	openapiBase := fs.String("openapi-base", strings.TrimSpace(os.Getenv("CHEESERAG_OPENAPI_BASE")), "Base URL to prefix API requests generated from the OpenAPI spec")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <goal text>\n       %s --chat\n", os.Args[0], os.Args[0])
@@ -226,6 +228,24 @@ func main() {
 	if *autonomous || *fullTools {
 		reg.Register(NewSubAgentTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
 		reg.Register(NewPanelTool(client, reg, strings.TrimSpace(*modelFlag), maxSteps))
+	}
+	if *openapiURL != "" {
+		base := *openapiBase
+		if base == "" {
+			// Fallback base URL for Fixago Backend if not explicitly provided
+			base = "http://127.0.0.1:3001"
+		}
+		apiTools, err := LoadOpenAPITools(*openapiURL, base)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[cheese] warning: could not load openapi tools: %v\n", err)
+		} else {
+			for _, t := range apiTools {
+				reg.Register(wrap(t, autoApprove))
+			}
+			if !*quietStartup {
+				fmt.Fprintf(os.Stderr, "[cheese] dynamically loaded %d tools from OpenAPI spec\n", len(apiTools))
+			}
+		}
 	}
 
 	var metricsHandler *callback.MetricsHandler
