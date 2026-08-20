@@ -1,0 +1,144 @@
+name: ✨ Feature Request
+description: Suggest a new feature or improvement for Cheeserag Studio.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ✨ Feature Request
+
+        Thanks for helping shape **Cheeserag Studio**.
+
+        Good feature requests explain the problem first and the proposed solution second.
+
+        Cheeserag Studio prioritizes:
+        - 🔒 Privacy-first AI
+        - 🏠 Local-first execution
+        - 📚 Grounded RAG
+        - 🧠 Small-model efficiency
+        - ⚡ Resource-aware architecture
+        - 🧩 Simple, maintainable systems
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve?
+      placeholder: |
+        Currently, ...
+
+        This makes it difficult to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe the feature or behavior you would like to see.
+      placeholder: |
+        I would like Cheeserag Studio to ...
+
+        The expected workflow would be:
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use Case
+      description: Explain who would benefit from this feature and how it would be used.
+      placeholder: |
+        This would be useful for ...
+
+        Example:
+        A user could ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      options:
+        - Studio / Next.js
+        - Cheese API / FastAPI
+        - RAG Pipeline
+        - Document Ingestion
+        - Retrieval
+        - Citation Engine
+        - Cheesebrain / LLM Inference
+        - PomaiDB
+        - Cheeserap Agent
+        - Audio Overview
+        - CLI
+        - Docker / Deployment
+        - New Component
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What alternatives or workarounds have you considered?
+      placeholder: |
+        I currently use ...
+
+        Another possible approach would be ...
+
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Technical Approach
+      description: If you have an implementation idea, explain how it could fit into the existing architecture.
+      placeholder: |
+        Possible implementation:
+
+        1. ...
+        2. ...
+        3. ...
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy & Local-First Compatibility
+      options:
+        - label: This feature can run fully locally.
+        - label: This feature does not require sending user documents to an external service.
+        - label: Any external service would be explicitly opt-in.
+        - label: I have considered the privacy implications of this proposal.
+
+  - type: checkboxes
+    id: breaking
+    attributes:
+      label: Compatibility
+      options:
+        - label: This feature should not require breaking changes.
+        - label: This feature may require a breaking change.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add mockups, diagrams, benchmarks, examples, references, or anything else that helps explain the proposal.
+      placeholder: |
+        Additional context...
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and could not find a duplicate.
+          required: true
+        - label: I have clearly described the problem this feature solves.
+          required: true
+        - label: I have considered how this fits Cheeserag Studio's local-first architecture.
+          required: true
